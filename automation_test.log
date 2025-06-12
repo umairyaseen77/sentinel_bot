@@ -1,0 +1,207 @@
+2025-06-11 22:33:27,024 - INFO - Starting browser session...
+2025-06-11 22:33:27,731 - INFO - Browser session started successfully
+2025-06-11 22:33:27,732 - INFO - Navigating to https://www.jobsatamazon.co.uk/
+2025-06-11 22:33:33,163 - INFO - Handling popups and modals...
+2025-06-11 22:33:36,164 - INFO - Dismissing job alerts modal...
+2025-06-11 22:33:38,221 - INFO - Popup handling completed
+2025-06-11 22:33:38,221 - INFO - Navigating to job search: https://www.jobsatamazon.co.uk/app#/jobSearch
+2025-06-11 22:33:43,052 - INFO - Checking for cookies on job search page...
+2025-06-11 22:33:43,074 - INFO - Accepting cookies with: button:has-text('Accept all')
+2025-06-11 22:33:45,117 - INFO - Checking for job alerts modal on job search page...
+2025-06-11 22:33:47,130 - INFO - Starting multi-step Amazon login process...
+2025-06-11 22:33:47,159 - INFO - Dismissing any job alerts modal before login...
+2025-06-11 22:33:49,163 - INFO - Opening hamburger menu...
+2025-06-11 22:33:52,217 - INFO - Found login option: 'Sign in' -> 
+2025-06-11 22:33:57,281 - INFO - Starting multi-step authentication flow...
+2025-06-11 22:33:57,376 - INFO - Password decrypted successfully
+2025-06-11 22:33:57,376 - INFO - Handling email entry step...
+2025-06-11 22:34:00,420 - INFO - Email filled with input:not([type]): thehumanz666@gmail.com
+2025-06-11 22:34:05,468 - INFO - Clicked next button with selector: button:has-text("Next")
+2025-06-11 22:34:05,468 - INFO - Email entry step completed
+2025-06-11 22:34:17,491 - INFO - Captcha detected
+2025-06-11 22:34:17,491 - INFO - Attempting automatic captcha solving...
+2025-06-11 22:34:50,681 - WARNING - Automatic captcha solving failed
+2025-06-11 22:35:20,967 - INFO - Browser session closed
+2025-06-11 22:38:20,020 - INFO - Starting browser session...
+2025-06-11 22:38:20,691 - INFO - Browser session started successfully
+2025-06-11 22:38:20,691 - INFO - Navigating to https://www.jobsatamazon.co.uk/
+2025-06-11 22:38:35,621 - INFO - Handling popups and modals...
+2025-06-11 22:38:38,622 - INFO - Dismissing job alerts modal...
+2025-06-11 22:38:40,681 - INFO - Popup handling completed
+2025-06-11 22:38:40,681 - INFO - Navigating to job search: https://www.jobsatamazon.co.uk/app#/jobSearch
+2025-06-11 22:38:45,380 - INFO - Checking for cookies on job search page...
+2025-06-11 22:38:45,403 - INFO - Accepting cookies with: button:has-text('Accept all')
+2025-06-11 22:38:47,450 - INFO - Checking for job alerts modal on job search page...
+2025-06-11 22:38:49,464 - INFO - Starting multi-step Amazon login process...
+2025-06-11 22:38:49,493 - INFO - Dismissing any job alerts modal before login...
+2025-06-11 22:38:51,498 - INFO - Opening hamburger menu...
+2025-06-11 22:38:54,560 - INFO - Found login option: 'Sign in' -> 
+2025-06-11 22:38:59,640 - INFO - Starting multi-step authentication flow...
+2025-06-11 22:38:59,734 - INFO - Password decrypted successfully
+2025-06-11 22:38:59,734 - INFO - Handling email entry step...
+2025-06-11 22:39:02,782 - INFO - Email filled with input:not([type]): thehumanz666@gmail.com
+2025-06-11 22:39:07,828 - INFO - Clicked next button with selector: button:has-text("Next")
+2025-06-11 22:39:07,828 - INFO - Email entry step completed
+2025-06-11 22:39:10,862 - INFO - Attempt 1: Detected step - unknown
+2025-06-11 22:39:10,862 - WARNING - Unknown page detected on attempt 1
+2025-06-11 22:39:10,864 - INFO - === PAGE DEBUGGING INFO ===
+2025-06-11 22:39:10,864 - INFO - Current URL: https://www.jobsatamazon.co.uk/app#/login?redirectUrl=https%3A%2F%2Fwww.jobsatamazon.co.uk%2Fapp%23%2FjobSearch
+2025-06-11 22:39:10,864 - INFO - Page Title: Jobs at Amazon
+2025-06-11 22:39:10,892 - INFO - Visible input fields:
+2025-06-11 22:39:10,892 - INFO -   Input 1: type='text', name='login EmailId', id='login', placeholder=''
+2025-06-11 22:39:10,989 - INFO - Visible buttons:
+2025-06-11 22:39:10,989 - INFO -   Button 1: text='Close banner', id=''
+2025-06-11 22:39:10,989 - INFO -   Button 2: text='', id=''
+2025-06-11 22:39:10,989 - INFO -   Button 3: text='', id=''
+2025-06-11 22:39:10,989 - INFO -   Button 4: text='Create one!', id=''
+2025-06-11 22:39:10,990 - INFO -   Button 5: text='Next', id=''
+2025-06-11 22:39:10,990 - INFO -   Button 6: text='Feedback', id='QSIFeedbackButton-btn'
+2025-06-11 22:39:10,990 - INFO -   Button 7: text='', id='QSIFeedbackButton-close-btn'
+2025-06-11 22:39:10,995 - INFO - Page text (first 500 chars): Skip to content
+Warning
+We couldn’t get your location.For the best experience, please allow location tracking. Alternatively, you can search for jobs by using a postcode.
+Close banner
+Open side menu.
+Log in
+This account is different from the one that you use to shop on Amazon.
+Email or mobile number
+Input your phone number without the leading 0.
+No account?
+Create one!
+Need help to log in?
+Next
+Looking for your Amazon Stores jobs account? Sign in here
+JOIN US NOW
+JOB ROLES
+Warehouse operative
+So
+2025-06-11 22:39:10,996 - INFO - === END PAGE DEBUGGING ===
+2025-06-11 22:39:14,001 - INFO - PIN page detected via text: enter your personal pin
+2025-06-11 22:39:14,001 - INFO - Attempt 2: Detected step - pin_entry
+2025-06-11 22:39:14,001 - INFO - PIN entry page detected
+2025-06-11 22:39:14,001 - INFO - Handling PIN entry step...
+2025-06-11 22:39:17,018 - INFO - Found PIN field with selector: input[name*="pin"]
+2025-06-11 22:39:17,028 - INFO - PIN filled successfully
+2025-06-11 22:39:22,083 - INFO - Clicked next button after PIN entry: button:has-text("Next")
+2025-06-11 22:39:22,083 - INFO - PIN entry step completed
+2025-06-11 22:39:25,087 - INFO - PIN page detected via text: enter your personal pin
+2025-06-11 22:39:25,087 - INFO - Attempt 3: Detected step - pin_entry
+2025-06-11 22:39:25,089 - INFO - PIN entry page detected
+2025-06-11 22:39:25,089 - INFO - Handling PIN entry step...
+2025-06-11 22:39:28,104 - INFO - Found PIN field with selector: input[name*="pin"]
+2025-06-11 22:39:28,111 - INFO - PIN filled successfully
+2025-06-11 22:39:33,151 - INFO - Clicked next button after PIN entry: button:has-text("Next")
+2025-06-11 22:39:33,151 - INFO - PIN entry step completed
+2025-06-11 22:39:36,156 - INFO - PIN page detected via text: enter your personal pin
+2025-06-11 22:39:36,156 - INFO - Attempt 4: Detected step - pin_entry
+2025-06-11 22:39:36,156 - INFO - PIN entry page detected
+2025-06-11 22:39:36,156 - INFO - Handling PIN entry step...
+2025-06-11 22:39:39,172 - INFO - Found PIN field with selector: input[name*="pin"]
+2025-06-11 22:39:39,180 - INFO - PIN filled successfully
+2025-06-11 22:39:44,223 - INFO - Clicked next button after PIN entry: button:has-text("Next")
+2025-06-11 22:39:44,223 - INFO - PIN entry step completed
+2025-06-11 22:39:47,228 - INFO - PIN page detected via text: enter your personal pin
+2025-06-11 22:39:47,228 - INFO - Attempt 5: Detected step - pin_entry
+2025-06-11 22:39:47,228 - INFO - PIN entry page detected
+2025-06-11 22:39:47,228 - INFO - Handling PIN entry step...
+2025-06-11 22:39:50,245 - INFO - Found PIN field with selector: input[name*="pin"]
+2025-06-11 22:39:50,253 - INFO - PIN filled successfully
+2025-06-11 22:39:55,298 - INFO - Clicked next button after PIN entry: button:has-text("Next")
+2025-06-11 22:39:55,298 - INFO - PIN entry step completed
+2025-06-11 22:39:58,303 - INFO - PIN page detected via text: enter your personal pin
+2025-06-11 22:39:58,303 - INFO - Attempt 6: Detected step - pin_entry
+2025-06-11 22:39:58,303 - INFO - PIN entry page detected
+2025-06-11 22:39:58,303 - INFO - Handling PIN entry step...
+2025-06-11 22:40:01,320 - INFO - Found PIN field with selector: input[name*="pin"]
+2025-06-11 22:40:01,327 - INFO - PIN filled successfully
+2025-06-11 22:40:06,369 - INFO - Clicked next button after PIN entry: button:has-text("Next")
+2025-06-11 22:40:06,369 - INFO - PIN entry step completed
+2025-06-11 22:40:09,374 - INFO - PIN page detected via text: enter your personal pin
+2025-06-11 22:40:09,374 - INFO - Attempt 7: Detected step - pin_entry
+2025-06-11 22:40:09,375 - INFO - PIN entry page detected
+2025-06-11 22:40:09,375 - INFO - Handling PIN entry step...
+2025-06-11 22:40:12,391 - INFO - Found PIN field with selector: input[name*="pin"]
+2025-06-11 22:40:12,397 - INFO - PIN filled successfully
+2025-06-11 22:40:17,434 - INFO - Clicked next button after PIN entry: button:has-text("Next")
+2025-06-11 22:40:17,434 - INFO - PIN entry step completed
+2025-06-11 22:40:20,439 - INFO - PIN page detected via text: enter your personal pin
+2025-06-11 22:40:20,439 - INFO - Attempt 8: Detected step - pin_entry
+2025-06-11 22:40:20,439 - INFO - PIN entry page detected
+2025-06-11 22:40:20,439 - INFO - Handling PIN entry step...
+2025-06-11 22:40:23,456 - INFO - Found PIN field with selector: input[name*="pin"]
+2025-06-11 22:40:23,463 - INFO - PIN filled successfully
+2025-06-11 22:40:28,502 - INFO - Clicked next button after PIN entry: button:has-text("Next")
+2025-06-11 22:40:28,502 - INFO - PIN entry step completed
+2025-06-11 22:47:54,267 - INFO - Starting browser session...
+2025-06-11 22:47:54,974 - INFO - Browser session started successfully
+2025-06-11 22:47:54,974 - INFO - Navigating to https://www.jobsatamazon.co.uk/
+2025-06-11 22:47:59,812 - INFO - Handling popups and modals...
+2025-06-11 22:48:02,813 - INFO - Dismissing job alerts modal...
+2025-06-11 22:48:05,075 - INFO - Popup handling completed
+2025-06-11 22:48:05,075 - INFO - Navigating to job search: https://www.jobsatamazon.co.uk/app#/jobSearch
+2025-06-11 22:48:09,749 - INFO - Checking for cookies on job search page...
+2025-06-11 22:48:09,772 - INFO - Accepting cookies with: button:has-text('Accept all')
+2025-06-11 22:48:11,822 - INFO - Checking for job alerts modal on job search page...
+2025-06-11 22:48:13,839 - INFO - Starting multi-step Amazon login process...
+2025-06-11 22:48:13,862 - INFO - Dismissing any job alerts modal before login...
+2025-06-11 22:48:15,867 - INFO - Opening hamburger menu...
+2025-06-11 22:48:18,928 - INFO - Found login option: 'Sign in' -> 
+2025-06-11 22:48:24,023 - INFO - Starting multi-step authentication flow...
+2025-06-11 22:48:24,116 - INFO - Password decrypted successfully
+2025-06-11 22:48:24,116 - INFO - Handling email entry step...
+2025-06-11 22:48:27,161 - INFO - Email filled with input:not([type]): thehumanz666@gmail.com
+2025-06-11 22:48:32,204 - INFO - Clicked next button with selector: button:has-text("Next")
+2025-06-11 22:48:32,204 - INFO - Email entry step completed
+2025-06-11 22:48:35,209 - INFO - PIN page detected via text: enter your personal pin
+2025-06-11 22:48:35,209 - INFO - Attempt 1: Detected step - pin_entry
+2025-06-11 22:48:35,209 - INFO - PIN entry page detected
+2025-06-11 22:48:35,209 - INFO - Handling PIN entry step...
+2025-06-11 22:48:38,228 - INFO - Found PIN field with selector: input[name*="pin"]
+2025-06-11 22:48:38,239 - INFO - PIN filled successfully
+2025-06-11 22:48:43,284 - INFO - Clicked next button after PIN entry: button:has-text("Next")
+2025-06-11 22:48:43,285 - INFO - PIN entry step completed
+2025-06-11 22:48:46,297 - INFO - Verification method page detected: where should we send your verification code
+2025-06-11 22:48:46,297 - INFO - Attempt 2: Detected step - verification_method
+2025-06-11 22:48:46,297 - INFO - Verification method selection page detected
+2025-06-11 22:48:46,297 - INFO - Handling verification method selection...
+2025-06-11 22:49:19,359 - INFO - Selected email verification option: label:has-text("Email")
+2025-06-11 22:49:24,396 - INFO - Clicked send verification code: button:has-text("Send verification code")
+2025-06-11 22:49:24,396 - INFO - Verification method selection completed
+2025-06-11 22:49:27,410 - INFO - Verification method page detected: where should we send your verification code
+2025-06-11 22:49:27,410 - INFO - Attempt 3: Detected step - verification_method
+2025-06-11 22:49:27,411 - INFO - Verification method selection page detected
+2025-06-11 22:49:27,411 - INFO - Handling verification method selection...
+2025-06-11 22:51:00,494 - INFO - Verification method selection completed
+2025-06-11 22:51:03,507 - INFO - Verification method page detected: where should we send your verification code
+2025-06-11 22:51:03,507 - INFO - Attempt 4: Detected step - verification_method
+2025-06-11 22:51:03,508 - INFO - Verification method selection page detected
+2025-06-11 22:51:03,508 - INFO - Handling verification method selection...
+2025-06-11 22:52:36,588 - INFO - Verification method selection completed
+2025-06-11 22:52:39,603 - INFO - Verification method page detected: where should we send your verification code
+2025-06-11 22:52:39,603 - INFO - Attempt 5: Detected step - verification_method
+2025-06-11 22:52:39,603 - INFO - Verification method selection page detected
+2025-06-11 22:52:39,603 - INFO - Handling verification method selection...
+2025-06-11 22:54:12,698 - INFO - Verification method selection completed
+2025-06-11 22:54:15,716 - INFO - Verification method page detected: where should we send your verification code
+2025-06-11 22:54:15,716 - INFO - Attempt 6: Detected step - verification_method
+2025-06-11 22:54:15,716 - INFO - Verification method selection page detected
+2025-06-11 22:54:15,716 - INFO - Handling verification method selection...
+2025-06-11 22:55:48,789 - INFO - Verification method selection completed
+2025-06-11 22:55:51,804 - INFO - Verification method page detected: where should we send your verification code
+2025-06-11 22:55:51,804 - INFO - Attempt 7: Detected step - verification_method
+2025-06-11 22:55:51,804 - INFO - Verification method selection page detected
+2025-06-11 22:55:51,805 - INFO - Handling verification method selection...
+2025-06-11 22:57:24,876 - INFO - Verification method selection completed
+2025-06-11 22:57:27,889 - INFO - Verification method page detected: where should we send your verification code
+2025-06-11 22:57:27,889 - INFO - Attempt 8: Detected step - verification_method
+2025-06-11 22:57:27,889 - INFO - Verification method selection page detected
+2025-06-11 22:57:27,889 - INFO - Handling verification method selection...
+2025-06-11 22:59:00,959 - INFO - Verification method selection completed
+2025-06-11 22:59:03,972 - INFO - Verification method page detected: where should we send your verification code
+2025-06-11 22:59:03,972 - INFO - Attempt 9: Detected step - verification_method
+2025-06-11 22:59:03,972 - INFO - Verification method selection page detected
+2025-06-11 22:59:03,974 - INFO - Handling verification method selection...
+2025-06-11 23:03:29,416 - ERROR - Task was destroyed but it is pending!
+task: <Task pending name='Task-207' coro=<Page.query_selector() running at C:\Users\UMAIR\Desktop\sentinel_bot\venv\Lib\site-packages\playwright\_impl\_page.py:408> cb=[SyncBase._sync.<locals>.<lambda>() at C:\Users\UMAIR\Desktop\sentinel_bot\venv\Lib\site-packages\playwright\_impl\_sync_base.py:111]>
+2025-06-11 23:03:29,418 - ERROR - Task was destroyed but it is pending!
+task: <Task pending name='Task-206' coro=<ElementHandle.click() running at C:\Users\UMAIR\Desktop\sentinel_bot\venv\Lib\site-packages\playwright\_impl\_element_handle.py:132> wait_for=<Future pending cb=[Task.task_wakeup()]> cb=[SyncBase._sync.<locals>.<lambda>() at C:\Users\UMAIR\Desktop\sentinel_bot\venv\Lib\site-packages\playwright\_impl\_sync_base.py:111, ProtocolCallback.__init__.<locals>.cb() at C:\Users\UMAIR\Desktop\sentinel_bot\venv\Lib\site-packages\playwright\_impl\_connection.py:198]>
