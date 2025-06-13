@@ -80,6 +80,24 @@ python run_gui.py
 ```
 If there's a different main script, use that instead (e.g., `python main.py`).
 
+`run_gui.py` launches a Tkinter-based window and therefore requires access to a
+graphical display. On a headless server the script may fail to start unless you
+provide a virtual display (e.g., via `xvfb-run`) or connect through remote
+desktop.
+
+```bash
+xvfb-run -a python run_gui.py
+```
+
+If you have already created your profiles with the GUI you can run the bot
+without the interface using the command-line helper:
+
+```bash
+python manual_run.py
+```
+This reads the profiles stored in `data/profiles.json` and runs the automation
+directly in the console.
+
 Check the console output and log files (e.g., in a `logs` directory or `automation_test.log`) for activity, status updates, and any errors.
 
 ## Documentation
