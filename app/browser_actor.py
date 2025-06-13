@@ -97,17 +97,18 @@ class BrowserActor:
             log.error(f"Failed to start browser session: {e}")
             return False
 
-    def handle_popups(self) -> bool: # Consider renaming to _dismiss_amazon_modals_with_escape
+    def handle_popups(self) -> bool:
+        """Dismiss any visible modals by sending the Escape key."""
         try:
-            log.info("Attempting to dismiss Amazon-specific modals with Escape key...")
+            log.info("Attempting to dismiss site modals with Escape key...")
             # Wait a moment for page to load, if necessary before Escape
             # self.page.wait_for_timeout(1000) # Optional short wait
             self.page.keyboard.press('Escape')
-            self.page.wait_for_timeout(1000) # Wait for potential modal to close
-            log.info("Escape key pressed for potential Amazon modals.")
+            self.page.wait_for_timeout(1000)  # Wait for potential modal to close
+            log.info("Escape key pressed for potential modals.")
             return True # Assume success, as it's a blind key press
         except Exception as e:
-            log.error(f"Failed to press Escape key for Amazon popups: {e}", exc_info=True)
+            log.error(f"Failed to press Escape key for popups: {e}", exc_info=True)
             return False
 
     # def handle_cookies(self): # Commented out - Replaced by _handle_cookie_modal_generic and dispatcher
@@ -516,7 +517,6 @@ class BrowserActor:
         log.info(f"No specific page type detected for {current_url} using signatures. Returning UNKNOWN.")
         return self.PAGE_TYPE_UNKNOWN
 
-
     def log_current_page_details(self):
         """Log current page details for debugging."""
         try:
@@ -876,10 +876,6 @@ class BrowserActor:
                     log.warning("Clicked 'Next' but still on a verification-like page.")
             else:
                 log.warning("Could not click 'Next' button after manual 2FA period or it was not found.")
-
-            log.info("2FA code entry step completed")
-            return True
-
         except Exception as e:
             log.error(f"2FA code entry failed: {e}")
             return False
