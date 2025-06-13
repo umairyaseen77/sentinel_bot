@@ -1,0 +1,15 @@
+{
+  "Umair": {
+    "job_site_url": "https://www.jobsatamazon.co.uk/",
+    "job_site_username": "test@example.com",
+    "job_site_password": "password123",
+    "headless": true,
+    "keywords": {
+      "required": ["python"],
+      "excluded": []
+    },
+    "filters": {
+      "cities": ["London"]
+    }
+  }
+}

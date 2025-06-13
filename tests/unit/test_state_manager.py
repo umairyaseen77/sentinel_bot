@@ -21,7 +21,7 @@ class TestSanitizeFilename(unittest.TestCase):
         # Based on re.sub(r'[^a-zA-Z0-9_-]', '_', name)
         self.assertEqual(
             sanitize_filename("prof!@#$%^&*()_+={}[]|\\:;\"'<>,.?/"),
-            "prof_____________________________",
+            "prof___________________________",
         )
 
     def test_filename_with_mixed_case(self):
