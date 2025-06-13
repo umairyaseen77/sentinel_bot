@@ -113,6 +113,15 @@ directly in the console.
 
 Check the console output and log files (e.g., in a `logs` directory or `automation_test.log`) for activity, status updates, and any errors.
 
+## First-Run Wizard
+
+When launching the GUI for the first time you will be guided through a short wizard. It prompts for a master password and basic job-site credentials. Completing the wizard generates two files:
+
+- `data/master.key` – stores a hashed copy of your master password.
+- `data/profiles.json` – holds your initial profile with passwords encrypted using the master password.
+
+On subsequent launches you will be asked for the same master password before the main **Mission Control** window opens. If Mission Control does not appear after entering the password, the key or profiles may be corrupted. Remove `data/master.key` and `data/profiles.json` to restart the wizard.
+
 ## Documentation
 
 For more detailed information, please refer to the following documents in the `docs/` directory:
