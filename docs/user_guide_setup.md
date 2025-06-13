@@ -129,6 +129,21 @@ If you want to encrypt sensitive information like your job site or email passwor
     ```
     (If a different main script exists, like `main_cli.py`, use that.)
 
+    `run_gui.py` opens a graphical window. On servers without a display the
+    script may fail to start. Use a virtual display such as **Xvfb** or connect
+    via remote desktop:
+
+    ```bash
+    xvfb-run -a python run_gui.py
+    ```
+
+    If profiles have already been created with the GUI you can run the bot in
+    the terminal using:
+
+    ```bash
+    python manual_run.py
+    ```
+
 ### Monitoring
 -   **Console Output:** The bot will print log messages to the console, showing its current activities, jobs found, errors, etc.
 -   **Log Files:** Detailed logs are typically saved to a file (e.g., `automation_test.log` or in a `logs/` directory). Check `app/logger.py` for the configured log file path. These logs are essential for debugging.
