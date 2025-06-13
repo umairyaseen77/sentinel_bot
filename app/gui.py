@@ -154,9 +154,13 @@ class App(ctk.CTk):
             password = simpledialog.askstring("Master Password", "Please enter your Master Password:", show='*')
             if password is None: # User cancelled
                 return False
-            
-            with open(MASTER_KEY_HASH_PATH, 'rb') as f:
-                stored_hash = f.read()
+
+            try:
+                with open(MASTER_KEY_HASH_PATH, 'rb') as f:
+                    stored_hash = f.read()
+            except FileNotFoundError:
+                messagebox.showerror("Error", "Master key not found. Run the setup wizard again or check your installation.")
+                return False
             
             if security.verify_password(stored_hash, password):
                 self.master_password = password
