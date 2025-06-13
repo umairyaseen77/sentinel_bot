@@ -1,14 +1,29 @@
 from playwright.sync_api import sync_playwright, Browser, Page, Playwright
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse, quote_plus # Added quote_plus for URL encoding keywords
+import re # For identify_page_type
 from .logger import log
-# from .authenticator import get_2fa_code # Not directly used by BrowserActor after previous refactors
-from .security import decrypt # Ensure this is imported if perform_multi_step_authentication is kept for Amazon
+# from .authenticator import get_2fa_code
+from .security import decrypt
 import time
-# import logging # Replaced by log
+# import logging
 
 class BrowserActor:
     """Manages all browser interactions using Playwright."""
+
+    # Page Type Constants
+    PAGE_TYPE_UNKNOWN = "UNKNOWN"
+    PAGE_TYPE_LOGIN_EMAIL = "LOGIN_EMAIL"
+    PAGE_TYPE_LOGIN_PASSWORD = "LOGIN_PASSWORD"
+    PAGE_TYPE_LOGIN_PIN = "LOGIN_PIN"
+    PAGE_TYPE_OTP_VERIFICATION = "OTP_VERIFICATION"
+    PAGE_TYPE_CAPTCHA = "CAPTCHA"
+    PAGE_TYPE_SEARCH_RESULTS = "SEARCH_RESULTS"
+    PAGE_TYPE_JOB_DETAILS = "JOB_DETAILS" # For future
+    PAGE_TYPE_COOKIE_MODAL = "COOKIE_MODAL"
+    PAGE_TYPE_POPUP_MODAL = "POPUP_MODAL" # General popup
+    PAGE_TYPE_LANDING_OR_HOME = "LANDING_OR_HOME"
+    PAGE_TYPE_ACCESS_DENIED = "ACCESS_DENIED"
 
     def __init__(self, config: dict, master_password: str = None):
         self.config = config
@@ -18,6 +33,44 @@ class BrowserActor:
         self.page: Page = None
         self.context = None
         self.session_active = False
+        self.page_type_handlers = {
+            self.PAGE_TYPE_COOKIE_MODAL: self._handle_cookie_modal_generic,
+            # self.PAGE_TYPE_CAPTCHA: self.handle_captcha, # Example for future
+        }
+
+    def _handle_cookie_modal_generic(self) -> bool:
+        log.info("Checking for generic cookie modal...")
+        job_site_type = self.config.get('job_site_type', 'amazon')
+        site_config_name = f"{job_site_type}_config"
+
+        site_specific_config = self.config.get(site_config_name, {})
+        if not site_specific_config and job_site_type == 'amazon': # Fallback for Amazon's old structure
+            site_specific_config = self.config
+
+        cookie_selectors = site_specific_config.get('cookie_modal_selectors', [])
+
+        if not cookie_selectors:
+            log.debug(f"No 'cookie_modal_selectors' defined for site_type '{job_site_type}'.")
+            # Special fallback for Amazon if old handle_cookies is still around and no selectors are configured
+            if job_site_type == 'amazon' and hasattr(self, 'handle_cookies') and callable(getattr(self, 'handle_cookies')):
+                 log.info("No specific cookie selectors for Amazon, attempting old handle_cookies().")
+                 return self.handle_cookies() # Call existing method
+            return False
+
+        for selector in cookie_selectors:
+            try:
+                element = self.page.locator(selector).first # Use .first to be safe
+                if element.is_visible(timeout=2000): # Short timeout to check
+                    log.info(f"Found and clicking cookie modal element: {selector}")
+                    element.click(timeout=3000)
+                    self.page.wait_for_timeout(1000) # Wait for action to complete
+                    log.info(f"Cookie modal handled by selector: {selector}")
+                    return True
+            except Exception as e:
+                log.debug(f"Cookie selector {selector} not found or action failed: {e}")
+                continue
+        log.info("No configured cookie modal elements found or handled by generic handler.")
+        return False
 
     def start_session(self) -> bool:
         """Start browser session with proper popup handling."""
@@ -102,38 +155,78 @@ class BrowserActor:
             
         return False
 
-    def navigate_to_job_search(self) -> bool:
-        """Navigate to the job search area."""
+    # def handle_cookies(self): # Commented out - Replaced by _handle_cookie_modal_generic and dispatcher
+    #     """Handle cookie consent dialogs."""
+    #     try:
+    #         cookie_selectors = [
+    #             "button:has-text('Accept all')",
+    #             "button:has-text('Accept All')",
+    #             "button:has-text('Accept cookies')",
+    #             "button:has-text('Accept Cookies')",
+    #             "#onetrust-accept-btn-handler",
+    #             "[data-test='accept-cookies']",
+    #             ".cookie-accept",
+    #             "button[id*='accept']"
+    #         ]
+
+    #         for selector in cookie_selectors:
+    #             try:
+    #                 element = self.page.query_selector(selector)
+    #                 if element and element.is_visible():
+    #                     log.info(f"Accepting cookies with: {selector}")
+    #                     element.click()
+    #                     self.page.wait_for_timeout(1000)
+    #                     return True
+    #             except:
+    #                 continue
+
+    #     except Exception as e:
+    #         log.warning(f"Cookie handling failed: {e}")
+
+    #     return False
+
+    def navigate_to_job_search(self) -> bool: # Amazon specific navigation
+        """Navigate to the Amazon job search area."""
         try:
             # Amazon Jobs UK loads on main page first
-            job_site_url = self.config['job_site_url']
-            log.info(f"Navigating to {job_site_url}")
+            job_site_url = self.config.get('job_site_url')
+            if not job_site_url:
+                log.error("job_site_url not found in config for Amazon navigation.")
+                return False
+            log.info(f"Navigating to Amazon main site: {job_site_url}")
             
-            self.page.goto(job_site_url, wait_until="domcontentloaded")
+            self.page.goto(job_site_url, wait_until="domcontentloaded", timeout=10000)
             
-            # Handle popups first
+            # Handle popups first (Amazon specific)
             if not self.handle_popups():
-                log.warning("Popup handling had issues, continuing...")
+                log.warning("Amazon popup handling had issues, continuing...")
             
             # Navigate to actual job search page
             target_url = job_site_url.rstrip('/') + '/app#/jobSearch'
-            log.info(f"Navigating to job search: {target_url}")
-            self.page.goto(target_url, wait_until="domcontentloaded")
-            self.page.wait_for_load_state('domcontentloaded', timeout=5000) # Changed from time.sleep(3)
-            
-            # Handle cookies again on job search page
-            log.info("Checking for cookies on job search page...")
+            log.info(f"Navigating to Amazon job search page: {target_url}")
+            self.page.goto(target_url, wait_until="domcontentloaded", timeout=10000)
+            self.page.wait_for_load_state('domcontentloaded', timeout=5000)
+
+            page_type = self.identify_page_type()
+            expected_types = [self.PAGE_TYPE_SEARCH_RESULTS, self.PAGE_TYPE_LANDING_OR_HOME, self.PAGE_TYPE_UNKNOWN]
+            if page_type not in expected_types:
+                log.warning(f"Navigated to Amazon job search, but page type is '{page_type}', not one of {expected_types}. URL: {self.page.url}")
+            elif page_type == self.PAGE_TYPE_UNKNOWN:
+                 log.info(f"Page type for Amazon job search page is UNKNOWN. URL: {self.page.url}. Proceeding with legacy interaction; consider defining page_signatures.")
+            else:
+                 log.info(f"Successfully landed on Amazon job search. Page type: {page_type}. URL: {self.page.url}")
+
+            log.info("Checking for cookies on Amazon job search page...")
             self.handle_cookies()
             
-            # Handle job alerts modal that may reappear on job search page
-            log.info("Checking for job alerts modal on job search page...")
+            log.info("Dismissing potential job alerts modal on Amazon job search page (second pass)...")
             self.page.keyboard.press('Escape')
-            self.page.wait_for_timeout(2000) # Changed from time.sleep(2)
+            self.page.wait_for_timeout(1000) # Shortened wait
             
             return True
             
         except Exception as e:
-            log.error(f"Failed to navigate to job search: {e}")
+            log.error(f"Failed to navigate to Amazon job search: {e}", exc_info=True)
             return False
 
     def login(self) -> bool:
@@ -197,181 +290,284 @@ class BrowserActor:
                 return False
             
             # Now we should be on the login flow
+            current_page_type = self.identify_page_type()
+            log.info(f"Landed on page type: {current_page_type} after clicking sign-in.")
+            # Expecting PAGE_TYPE_LOGIN_EMAIL or similar.
+            if current_page_type not in [self.PAGE_TYPE_LOGIN_EMAIL, self.PAGE_TYPE_LOGIN_PASSWORD, self.PAGE_TYPE_LOGIN_PIN, self.PAGE_TYPE_OTP_VERIFICATION, self.PAGE_TYPE_CAPTCHA]:
+                log.warning(f"Initial page after sign-in click is '{current_page_type}', expected a login page type. Proceeding to multi-step auth, which will handle the current page.")
+
             return self.perform_multi_step_authentication()
                 
         except Exception as e:
-            log.error(f"Login failed: {e}")
+            log.error(f"Login failed: {e}", exc_info=True) # Added exc_info for more details
             return False
 
     def perform_multi_step_authentication(self) -> bool:
-        """Perform multi-step Amazon authentication with smart step detection."""
+        """Perform multi-step Amazon authentication using identified page types."""
         try:
-            log.info("Starting multi-step authentication flow...")
+            log.info("Starting multi-step authentication flow using identify_page_type().")
             
-            # Decrypt password
-            # Assuming self.config is the profile_config
             encrypted_password = self.config.get('amazon_password')
             if not encrypted_password:
-                log.error("Amazon password not found in configuration")
+                log.error("Amazon password not found in configuration for multi-step auth.")
                 return False
 
             password = decrypt(encrypted_password, self.master_password)
             if not password:
-                log.error("Failed to decrypt Amazon password")
+                log.error("Failed to decrypt Amazon password for multi-step auth.")
                 return False
-            
-            log.info("Password decrypted successfully")
-            
-            # Step 1: Email entry
-            if not self.handle_email_entry():
-                log.error("Email entry failed")
-                return False
-            
-            # Multi-step authentication with retry logic
+            log.info("Password decrypted successfully for multi-step auth.")
+
+            # The first step (e.g., email entry) is assumed to have been triggered by login()
+            # and perform_multi_step_authentication is called when we are on the page *after* initial email/user submission.
+            # Or, if identify_page_type() identifies PAGE_TYPE_LOGIN_EMAIL here, handle_email_entry could be called.
+
             max_attempts = 10
             attempt = 0
-            previous_step = None
-            step_retry_count = {}
-            
+            previous_page_type_for_stuck_detection = None
+            page_type_retry_count = {}
+
             while attempt < max_attempts:
                 attempt += 1
-                current_step = self.detect_current_step()
-                
-                log.info(f"Attempt {attempt}: Detected step - {current_step}")
-                
-                # Check if we're stuck in the same step
-                if current_step == previous_step:
-                    step_retry_count[current_step] = step_retry_count.get(current_step, 0) + 1
-                    if step_retry_count[current_step] >= 3:
-                        log.warning(f"Stuck in step '{current_step}' for 3 attempts, trying to break out...")
-                        
-                        # Try to break out of loops
-                        if current_step == "verification_method":
-                            log.info("Breaking out of verification method loop...")
-                            self.page.wait_for_timeout(10000)  # Wait longer, Changed from time.sleep(10)
-                            # Try to detect if we actually moved to next step
-                            new_step = self.detect_current_step()
-                            if new_step != current_step:
-                                current_step = new_step
-                                log.info(f"Successfully broke out, new step: {current_step}")
-                            else:
-                                log.error("Failed to break out of verification method loop")
-                                return False
-                        else:
-                            log.error(f"Unable to break out of step: {current_step}")
-                            return False
+                current_page_type = self.identify_page_type()
+                log.info(f"Auth Attempt {attempt}/{max_attempts}: Current page type identified as '{current_page_type}'. URL: {self.page.url}")
+
+                if current_page_type == previous_page_type_for_stuck_detection and \
+                   current_page_type != self.PAGE_TYPE_UNKNOWN: # Avoid getting stuck on UNKNOWN if signatures are missing
+                    page_type_retry_count[current_page_type] = page_type_retry_count.get(current_page_type, 0) + 1
+                    if page_type_retry_count[current_page_type] >= 3:
+                        log.warning(f"Stuck on page type '{current_page_type}' for {page_type_retry_count[current_page_type]} attempts.")
+                        # Specific break-out logic could be added here if needed, e.g., for OTP_VERIFICATION
+                        # For now, general failure if stuck too long.
+                        log.error(f"Authentication failed: Stuck on page type '{current_page_type}'.")
+                        return False
                 else:
-                    # Reset retry count for new step
-                    step_retry_count = {current_step: 1}
-                
-                previous_step = current_step
-                
-                # Handle each step
-                if current_step == "pin_entry":
-                    if not self.handle_pin_entry(password):
-                        log.error("PIN entry failed")
-                        return False
-                        
-                elif current_step == "verification_method":
-                    if not self.handle_verification_method_selection():
-                        log.error("Verification method selection failed")
-                        return False
-                        
-                elif current_step == "2fa_code":
-                    if not self.handle_2fa_code_entry():
-                        log.error("2FA code entry failed")
-                        return False
-                        
-                elif current_step == "captcha":
-                    if not self.handle_captcha():
-                        log.error("Captcha handling failed")
-                        return False
-                        
-                elif current_step == "success":
-                    log.info("Authentication completed successfully!")
+                    page_type_retry_count = {current_page_type: 1} # Reset counter for the current type
+
+                previous_page_type_for_stuck_detection = current_page_type
+
+                action_taken_this_step = False
+                if current_page_type == self.PAGE_TYPE_LOGIN_EMAIL:
+                    log.info("Currently on LOGIN_EMAIL page. Attempting to handle email entry.")
+                    if not self.handle_email_entry(): return False
+                    action_taken_this_step = True
+                elif current_page_type == self.PAGE_TYPE_LOGIN_PIN:
+                    log.info("Currently on LOGIN_PIN page. Attempting to handle PIN entry.")
+                    if not self.handle_pin_entry(password): return False
+                    action_taken_this_step = True
+                elif current_page_type == self.PAGE_TYPE_OTP_VERIFICATION:
+                    log.info("Currently on OTP_VERIFICATION page. Attempting to handle 2FA code entry/selection.")
+                    # This might internally handle method selection then code entry.
+                    if not self.handle_2fa_code_entry(): return False
+                    action_taken_this_step = True
+                elif current_page_type == self.PAGE_TYPE_CAPTCHA:
+                    log.info("Currently on CAPTCHA page. Attempting to handle CAPTCHA.")
+                    if not self.handle_captcha(): return False
+                    action_taken_this_step = True
+                elif current_page_type == self.PAGE_TYPE_SEARCH_RESULTS or \
+                     current_page_type == self.PAGE_TYPE_LANDING_OR_HOME:
+                    log.info(f"Authentication successful: Landed on page type '{current_page_type}'.")
                     return True
-                    
-                elif current_step == "unknown":
-                    log.warning(f"Unknown authentication step detected on attempt {attempt}")
-                    # Log current page details for debugging
+                elif current_page_type == self.PAGE_TYPE_UNKNOWN:
+                    log.warning(f"Unknown page type detected (attempt {attempt}). Logging details and waiting.")
                     self.log_current_page_details()
-                    
-                    # Wait a bit and try again
-                    self.page.wait_for_timeout(5000) # Changed from time.sleep(5)
-                    
-                    # If we've been stuck on unknown for too long, fail
-                    if step_retry_count.get("unknown", 0) >= 3:
-                        log.error("Too many unknown steps, authentication failed")
-                        return False
-                
-                # Wait between steps
-                self.page.wait_for_timeout(3000) # Changed from time.sleep(3)
-            
-            log.error(f"Authentication failed after {max_attempts} attempts")
+                    # Specific stuck detection for UNKNOWN state
+                    page_type_retry_count[self.PAGE_TYPE_UNKNOWN] = page_type_retry_count.get(self.PAGE_TYPE_UNKNOWN, 0) + 1
+                    if page_type_retry_count.get(self.PAGE_TYPE_UNKNOWN, 0) >= 3:
+                         log.error("Too many consecutive UNKNOWN page types. Authentication failed.")
+                         return False
+                    self.page.wait_for_timeout(5000) # Wait before next poll if unknown
+                    action_taken_this_step = True # Consumed an attempt by waiting
+                else: # An unexpected but known page type encountered
+                    log.warning(f"Unexpected page type '{current_page_type}' during auth flow (attempt {attempt}). Waiting.")
+                    self.log_current_page_details()
+                    self.page.wait_for_timeout(5000) # Wait
+                    action_taken_this_step = True # Consumed an attempt
+
+                # If an action was taken (handler called or waited for UNKNOWN),
+                # a page transition is expected. We might not need an additional generic wait.
+                # If no specific action was taken (e.g. unexpected known page type), a small wait is good.
+                if action_taken_this_step and current_page_type not in [self.PAGE_TYPE_SEARCH_RESULTS, self.PAGE_TYPE_LANDING_OR_HOME]:
+                     log.debug(f"Action taken for {current_page_type}, will re-identify page type in next iteration.")
+                     # self.page.wait_for_timeout(1000) # Optional short wait for page to settle after action
+                elif not action_taken_this_step: # Should not happen if all types are handled
+                     log.error(f"No action defined for page type {current_page_type}. Auth flow stuck.")
+                     return False
+
+
+            log.error(f"Authentication failed after {max_attempts} attempts (exceeded max attempts).")
             return False
             
         except Exception as e:
-            log.error(f"Multi-step authentication failed: {e}")
+            log.error(f"An unexpected error occurred in perform_multi_step_authentication: {e}", exc_info=True)
             return False
 
-    def detect_current_step(self) -> str:
-        """Detect which step of the authentication process we're currently on with improved efficiency."""
-        default_timeout = 1500  # ms
-        page_text_lower = None  # Initialize
-
+    def identify_page_type(self, default_timeout: int = 1000) -> str:
+        current_url = ""
         try:
-            current_url = self.page.url.lower() # Keep URL check as it's efficient
+            current_url = self.page.url.lower()
+        except Exception as e:
+            log.warning(f"Could not get current URL in identify_page_type: {e}")
+            return self.PAGE_TYPE_UNKNOWN # Cannot do much without URL
 
-            # PIN Entry Detection
-            pin_indicators = [
-                'enter your personal pin', # text
-                'personal pin', # text
-                'input[placeholder*="pin"]', # selector
-                'input[name*="pin"]', # selector
-                'input[id*="pin"]' # selector
-            ]
-            if self.page.locator('input#ap_pin_mobile_field').is_visible(timeout=default_timeout):
-                log.info("PIN page detected by specific selector #ap_pin_mobile_field")
-                return "pin_entry"
+        job_site_type = self.config.get('job_site_type', 'amazon') # Default to amazon
+        site_config_name = f"{job_site_type}_config"
+        site_specific_config = self.config.get(site_config_name, {})
 
-            pin_selector_found = False
-            for indicator in pin_indicators:
-                if indicator.startswith('input['):  # Is a selector
+        # Fallback for Amazon if no explicit 'amazon_config' section exists yet
+        if not site_specific_config and job_site_type == 'amazon' and 'job_site_url' in self.config:
+            log.debug(f"Using root config for Amazon as '{site_config_name}' not found.")
+            site_specific_config = self.config
+
+        if not site_specific_config:
+            log.warning(f"No specific config found for job_site_type '{job_site_type}' (expected key: {site_config_name} or root config for amazon).")
+            return self.PAGE_TYPE_UNKNOWN
+
+        page_signatures = site_specific_config.get('page_signatures', [])
+        if not page_signatures:
+            log.debug(f"No page_signatures defined for site type '{job_site_type}'.")
+            return self.PAGE_TYPE_UNKNOWN
+
+        # Separate modal and page signatures
+        modal_signatures = [s for s in page_signatures if s.get('is_modal', False)]
+        regular_page_signatures = [s for s in page_signatures if not s.get('is_modal', False)]
+
+        # 1. Check Modals First
+        for signature in modal_signatures:
+            page_type = signature.get('page_type', self.PAGE_TYPE_UNKNOWN)
+            rules_matched = 0
+            rules_defined = 0
+
+            # URL Checks
+            if 'url_matches' in signature:
+                rules_defined += 1
+                if re.search(signature['url_matches'], current_url):
+                    rules_matched += 1
+                else: continue
+            if 'url_contains' in signature:
+                rules_defined += 1
+                if all(sub_str.lower() in current_url for sub_str in signature['url_contains']):
+                    rules_matched += 1
+                else: continue
+            if 'url_query_param_exists' in signature:
+                rules_defined += 1
+                parsed_url = urlparse(current_url)
+                query_params = set(parsed_url.query.split('&')) if parsed_url.query else set()
+                actual_params = {p.split('=')[0] for p in query_params}
+                if all(param_name in actual_params for param_name in signature['url_query_param_exists']):
+                    rules_matched +=1
+                else: continue
+
+            # Element Exists Check
+            if 'element_exists' in signature:
+                rules_defined += 1
+                found_element = False
+                for selector in signature['element_exists']:
                     try:
-                        if self.page.locator(indicator).is_visible(timeout=default_timeout):
-                            log.info(f"PIN page detected via selector: {indicator}")
-                            pin_selector_found = True
-                            return "pin_entry"
-                    except Exception: # Playwright might throw if selector is invalid / times out
-                        continue
-            if not pin_selector_found:
-                if page_text_lower is None:
+                        if self.page.locator(selector).is_visible(timeout=default_timeout):
+                            found_element = True
+                            break
+                    except Exception: continue
+                if found_element: rules_matched += 1
+                else: continue
+
+            # Text Contains Check
+            if 'text_contains' in signature:
+                rules_defined += 1
+                try:
+                    body_text = self.page.locator('body').text_content(timeout=default_timeout).lower()
+                    if all(text_snippet.lower() in body_text for text_snippet in signature['text_contains']):
+                        rules_matched += 1
+                    else: continue
+                except Exception: continue
+
+            # Element Has Text Check
+            if 'element_has_text' in signature:
+                rules_defined +=1
+                all_elements_have_text = True
+                for item in signature['element_has_text']:
                     try:
-                        page_text_lower = self.page.inner_text('body', timeout=default_timeout).lower()
-                    except Exception as e:
-                        log.warning(f"Could not get page_text for PIN (text) detection: {e}")
-                        page_text_lower = ""
+                        elem_text = self.page.locator(item['selector']).text_content(timeout=default_timeout)
+                        if item['text'].lower() not in elem_text.lower():
+                            all_elements_have_text = False
+                            break
+                    except Exception:
+                        all_elements_have_text = False
+                        break
+                if all_elements_have_text: rules_matched += 1
+                else: continue
 
-                if page_text_lower:
-                    for indicator in pin_indicators:
-                        if not indicator.startswith('input['):  # Is text
-                            if indicator in page_text_lower:
-                                log.info(f"PIN page detected via text: {indicator}")
-                                return "pin_entry"
+            if rules_defined > 0 and rules_matched == rules_defined:
+                log.info(f"Modal page type detected: {page_type} for {current_url}")
+                return page_type
 
-            # Verification Method Detection
-            # Current logic is fairly specific, let's adapt it with timeouts
-            try:
-                if self.page.locator('text="Where should we send your verification code"').is_visible(timeout=default_timeout):
-                    send_button = self.page.locator('button:has-text("Send verification code")')
-                    if send_button.is_visible(timeout=default_timeout) and send_button.is_enabled(timeout=default_timeout):
-                        log.info("Verification method page detected")
-                        return "verification_method"
-            except Exception:
-                pass # Element not visible or other error
+        # 2. Check Regular Pages if no modal matched
+        for signature in regular_page_signatures:
+            page_type = signature.get('page_type', self.PAGE_TYPE_UNKNOWN)
+            rules_matched = 0
+            rules_defined = 0
+            # URL Checks
+            if 'url_matches' in signature:
+                rules_defined += 1
+                if re.search(signature['url_matches'], current_url): rules_matched += 1
+                else: continue
+            if 'url_contains' in signature:
+                rules_defined += 1
+                if all(sub_str.lower() in current_url for sub_str in signature['url_contains']): rules_matched += 1
+                else: continue
+            if 'url_query_param_exists' in signature:
+                rules_defined += 1
+                parsed_url = urlparse(current_url)
+                query_params = set(parsed_url.query.split('&')) if parsed_url.query else set()
+                actual_params = {p.split('=')[0] for p in query_params}
+                if all(param_name in actual_params for param_name in signature['url_query_param_exists']): rules_matched +=1
+                else: continue
+            # Element Exists
+            if 'element_exists' in signature:
+                rules_defined += 1
+                found_element = False
+                for selector in signature['element_exists']:
+                    try:
+                        if self.page.locator(selector).is_visible(timeout=default_timeout):
+                            found_element = True
+                            break
+                    except Exception: continue
+                if found_element: rules_matched += 1
+                else: continue
+            # Text Contains
+            if 'text_contains' in signature:
+                rules_defined += 1
+                try:
+                    body_text = self.page.locator('body').text_content(timeout=default_timeout).lower()
+                    if all(text_snippet.lower() in body_text for text_snippet in signature['text_contains']): rules_matched += 1
+                    else: continue
+                except Exception: continue
+            # Element Has Text
+            if 'element_has_text' in signature:
+                rules_defined +=1
+                all_elements_have_text = True
+                for item in signature['element_has_text']:
+                    try:
+                        elem_text = self.page.locator(item['selector']).text_content(timeout=default_timeout)
+                        if item['text'].lower() not in elem_text.lower():
+                            all_elements_have_text = False; break
+                    except Exception: all_elements_have_text = False; break
+                if all_elements_have_text: rules_matched += 1
+                else: continue
 
-            # 2FA Code Entry Detection
-            code_indicators = [
+            if rules_defined > 0 and rules_matched == rules_defined:
+                log.info(f"Page type detected: {page_type} for {current_url}")
+                return page_type
+
+        log.info(f"No specific page type detected for {current_url} using signatures. Returning UNKNOWN.")
+        return self.PAGE_TYPE_UNKNOWN
+
+    # def detect_current_step(self) -> str: # Marked for removal/replacement
+    #     # This method is now specific to Amazon's multi-step authentication flow
+    #     # and acts as a translator from the generic identify_page_type
+    #     pass # To be removed or fully replaced by direct identify_page_type usage.
+
+    def log_current_page_details(self):
                 'a verification code has been sent', # text
                 'enter the verification code', # text
                 'verification code sent to', # text
@@ -1205,74 +1401,67 @@ class BrowserActor:
             log.error(f"Job search failed: {e}")
             return False
 
-    def extract_job_listings(self) -> list:
-        """Extract job listings from the current page."""
+    def extract_job_listings(self) -> list: # Amazon specific
+        """Extract job listings from the current Amazon page."""
         try:
-            log.info("Extracting job listings...")
+            log.info("Extracting job listings for Amazon...")
+            current_page_type = self.identify_page_type()
+            expected_types = [self.PAGE_TYPE_SEARCH_RESULTS, self.PAGE_TYPE_UNKNOWN] # UNKNOWN as fallback
+            if current_page_type not in expected_types:
+                log.error(f"Cannot extract Amazon jobs. Expected {expected_types}, got '{current_page_type}'. URL: {self.page.url}")
+                return []
+            if current_page_type == self.PAGE_TYPE_UNKNOWN:
+                 log.warning(f"Amazon page type is UNKNOWN for extraction at {self.page.url}. Signatures may need update.")
+
+            amazon_cfg = self.config.get('amazon_config', {})
+            selectors = amazon_cfg.get('selectors', {})
+            job_card_s = selectors.get('job_card', "div[class*='job-tile'], div.job") # More generic Amazon fallback
+            title_s = selectors.get('title', "h3[class*='job-title']")
+            company_s = selectors.get('company', "[class*='company-name']") # Often not present or fixed
+            location_s = selectors.get('location', "[class*='job-location']")
+            link_s = selectors.get('link', "a[class*='job-link']")
+
+            log.info(f"Using Amazon job card selector: '{job_card_s}'")
+            try:
+                self.page.wait_for_selector(job_card_s, timeout=10000) # Increased timeout
+            except Exception as e_wait:
+                log.error(f"Failed to find Amazon job cards with '{job_card_s}': {e_wait}")
+                if self.identify_page_type() == self.PAGE_TYPE_ACCESS_DENIED: log.error("Access denied on Amazon.")
+                return []
             
-            # Wait for results to load
-            self.page.wait_for_selector("div[class*='job']", timeout=7000) # Changed from time.sleep(5)
-            
-            # Use the selectors we discovered that work
-            job_selectors = [
-                "div[class*='job']",
-                ".job-listing",
-                "[data-test*='job']",
-                ".job-item"
-            ]
-            
+            job_elements = self.page.locator(job_card_s).all()
+            log.info(f"Found {len(job_elements)} potential Amazon job cards.")
             jobs = []
-            
-            for selector in job_selectors:
+            base_url = self.config.get('job_site_url', "https://www.amazon.jobs")
+
+            for element in job_elements:
+                if not element.is_visible(timeout=200): continue # Skip non-visible cards quickly
                 try:
-                    job_elements = self.page.query_selector_all(selector)
-                    if job_elements:
-                        log.info(f"Found {len(job_elements)} job elements with selector: {selector}")
+                    title = element.locator(title_s).first.text_content(timeout=100).strip() if element.locator(title_s).count() > 0 else ""
+                    # Amazon is usually the company, but if a selector is provided, use it.
+                    company = "Amazon" # Default
+                    if company_s and element.locator(company_s).count() > 0:
+                        company_text = element.locator(company_s).first.text_content(timeout=100).strip()
+                        if company_text : company = company_text # Override default if found
+
+                    location = element.locator(location_s).first.text_content(timeout=100).strip() if element.locator(location_s).count() > 0 else ""
+                    link_href = element.locator(link_s).first.get_attribute('href', timeout=100) if element.locator(link_s).count() > 0 else ""
+                    link = urljoin(base_url, link_href) if link_href else ""
+
+                    if title: # Consider title essential
+                        jobs.append({'title': title, 'company': company, 'location': location, 'link': link,
+                                     'description': f"{title} at {company} in {location}", # Simple description
+                                     'source': 'Amazon'})
+                    else:
+                        log.debug(f"Skipping Amazon job card, title seems missing.")
                         
-                        for element in job_elements:
-                            if element.is_visible():
-                                try:
-                                    # Extract job details
-                                    title_elem = element.query_selector("h1, h2, h3, .title, [class*='title']")
-                                    title = title_elem.inner_text() if title_elem else "Unknown Title"
-                                    
-                                    company_elem = element.query_selector(".company, [class*='company']")
-                                    company = company_elem.inner_text() if company_elem else "Amazon"
-                                    
-                                    location_elem = element.query_selector(".location, [class*='location']")
-                                    location = location_elem.inner_text() if location_elem else "Unknown Location"
-                                    
-                                    # Get the link
-                                    link_elem = element.query_selector("a")
-                                    link = link_elem.get_attribute('href') if link_elem else ""
-                                    
-                                    job = {
-                                        'title': title.strip(),
-                                        'company': company.strip(), 
-                                        'location': location.strip(),
-                                        'link': link,
-                                        'description': f"{title} at {company} in {location}"
-                                    }
-                                    
-                                    jobs.append(job)
-                                    
-                                except Exception as e:
-                                    log.warning(f"Error extracting job details: {e}")
-                                    continue
-                        
-                        if jobs:
-                            break  # Found jobs with this selector, stop trying others
-                            
-                except Exception as e:
-                    log.warning(f"Error with selector {selector}: {e}")
-                    continue
+                except Exception as e_detail:
+                    log.warning(f"Error extracting detail from an Amazon job card: {e_detail}")
             
-            log.info(f"Extracted {len(jobs)} job listings")
+            log.info(f"Extracted {len(jobs)} Amazon job listings.")
             return jobs
-            
         except Exception as e:
-            log.error(f"Failed to extract job listings: {e}")
-            return []
+            log.error(f"Failed to extract Amazon job listings: {e}", exc_info=True); return []
 
     def close_session(self):
         """Clean up browser session."""
@@ -1300,6 +1489,40 @@ class BrowserActor:
         try:
             if not self.start_session():
                 return []
+
+            # --- Start of new dispatcher block ---
+            if self.page:
+                try:
+                    log.info("Running initial page type dispatch for common modals...")
+                    # Allow up to 2 attempts to handle modals that might overlay each other or refresh the page
+                    for attempt in range(2):
+                        current_page_type = self.identify_page_type()
+                        log.info(f"Dispatcher (attempt {attempt+1}): Identified page type: {current_page_type}")
+
+                        if current_page_type in self.page_type_handlers:
+                            handler = self.page_type_handlers[current_page_type]
+                            log.info(f"Dispatcher: Found handler for {current_page_type}, executing...")
+                            action_taken = handler()
+
+                            if action_taken:
+                                log.info(f"Dispatcher: Handler for {current_page_type} took action. Re-evaluating page if another attempt is left.")
+                                if attempt == 1:
+                                    current_page_type = self.identify_page_type()
+                                    log.info(f"Dispatcher: Final page type after handling modal on last attempt: {current_page_type}")
+                                # Loop will continue and re-identify if attempt < 1
+                            else:
+                                log.info(f"Dispatcher: Handler for {current_page_type} reported no action. Proceeding.")
+                                break
+                        else:
+                            log.info(f"Dispatcher: No specific handler for page type {current_page_type}. Proceeding.")
+                            break
+                    log.info("Initial page type dispatch complete.")
+                except Exception as e_dispatch:
+                    log.error(f"Error during initial page type dispatch: {e_dispatch}", exc_info=True)
+            else:
+                log.error("Page object not available for initial dispatch in run_job_search_session. Critical failure.")
+                return [] # Cannot proceed without a page
+            # --- End of new dispatcher block ---
 
             if job_site_type == 'indeed':
                 log.info("Running Indeed job search session.")
@@ -1381,23 +1604,24 @@ class BrowserActor:
         try:
             self.page.goto(search_url, wait_until="domcontentloaded", timeout=10000)
             
-            # Handle Indeed cookie popup (example)
-            try:
-                cookie_button = self.page.locator("#onetrust-accept-btn-handler") # Common Indeed cookie button
-                if cookie_button.is_visible(timeout=5000): # Check visibility with a timeout
-                    cookie_button.click(timeout=3000) # Click with a timeout
-                    log.info("Accepted Indeed cookies.")
-                    self.page.wait_for_timeout(1000) # Wait for action to complete
-            except Exception as e:
-                log.warning(f"Indeed cookie handling failed or not needed: {e}")
+            # Specific Indeed cookie handling removed, should be handled by dispatcher
+            # if PAGE_TYPE_COOKIE_MODAL is identified and configured for Indeed.
 
             # You might want to add a check here to ensure the page loaded correctly,
             # e.g., by looking for a known element on the search results page.
             # For PoC, we assume navigation is successful if no immediate error.
+            page_type = self.identify_page_type()
+            expected_types = [self.PAGE_TYPE_SEARCH_RESULTS, self.PAGE_TYPE_UNKNOWN] # UNKNOWN as fallback
+            if page_type not in expected_types :
+                 log.warning(f"Navigated to Indeed, but page type is '{page_type}', not one of {expected_types}. URL: {search_url}")
+            elif page_type == self.PAGE_TYPE_UNKNOWN:
+                log.info(f"Page type for Indeed job search is UNKNOWN. URL: {search_url}. Proceeding; consider defining page_signatures.")
+            else:
+                log.info(f"Successfully navigated to Indeed search results. Page type: {page_type}")
             
             return True
         except Exception as e:
-            log.error(f"Failed to navigate to Indeed URL {search_url}: {e}")
+            log.error(f"Failed to navigate to Indeed URL {search_url}: {e}", exc_info=True)
             return False
 
     def extract_indeed_job_listings(self) -> list:
@@ -1422,10 +1646,24 @@ class BrowserActor:
         jobs = []
         try:
             log.info(f"Waiting for Indeed job cards with selector: {job_card_selector}")
-            self.page.wait_for_selector(job_card_selector, timeout=10000) # Wait for the first card
+
+            current_page_type = self.identify_page_type()
+            expected_types = [self.PAGE_TYPE_SEARCH_RESULTS, self.PAGE_TYPE_UNKNOWN]
+            if current_page_type not in expected_types:
+                log.error(f"Cannot extract Indeed jobs. Expected {expected_types}, got '{current_page_type}'. URL: {self.page.url}")
+                return []
+            if current_page_type == self.PAGE_TYPE_UNKNOWN:
+                 log.warning(f"Indeed page type is UNKNOWN for extraction at {self.page.url}. Signatures may need update.")
+
+            try:
+                self.page.wait_for_selector(job_card_selector, timeout=10000)
+            except Exception as e_wait:
+                log.error(f"Failed to find Indeed job cards with '{job_card_selector}': {e_wait}")
+                if self.identify_page_type() == self.PAGE_TYPE_ACCESS_DENIED: log.error("Access denied on Indeed.")
+                return []
 
             log.info("Extracting Indeed job listings...")
-            job_elements = self.page.locator(job_card_selector).all() # Get all job cards
+            job_elements = self.page.locator(job_card_selector).all()
             log.info(f"Found {len(job_elements)} potential Indeed job cards.")
 
             for element in job_elements:
