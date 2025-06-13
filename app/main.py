@@ -44,16 +44,23 @@ def filter_jobs(jobs: List[Dict[str, str]], keywords_config: Dict, filters_confi
         
         # Check location filter
         if allowed_cities and not any(city in location_lower for city in allowed_cities):
-            # Allow job if location is empty/not specified, as it could be a remote role
-            if location_lower.strip():
-                log.debug(f"Skipping job '{job['title']}' in '{job.get('location')}' - location not in allowed list: {allowed_cities}")
-                continue
+            log.debug(
+                f"Skipping job '{job['title']}' in '{job.get('location')}' - location not in allowed list: {allowed_cities}"
+            )
+            continue
             
         filtered_jobs.append(job)
         
     return filtered_jobs
 
-def run_bot(profile_name: str, profile_config: Dict, master_password: str, stop_event: threading.Event, status_queue: queue.Queue):
+def run_bot(
+    profile_name: str,
+    profile_config: Dict,
+    master_password: str,
+    stop_event: threading.Event,
+    status_queue: queue.Queue,
+    log_queue: queue.Queue | None = None,
+):
     """
     Main function to run the Sentinel Bot for a specific profile.
     This function is stateless and receives all config as arguments.
