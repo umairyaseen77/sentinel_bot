@@ -897,7 +897,6 @@ class BrowserActor:
 
             log.info("2FA code entry step completed (manual or fallback path).")
             return True
-            
         except Exception as e:
             log.error(f"2FA code entry failed: {e}")
             return False
