@@ -194,6 +194,8 @@ class App(ctk.CTk):
         self.delete_button = ctk.CTkButton(profile_frame, text="- Delete", width=70, fg_color="red", hover_color="#C00000", command=self.delete_profile)
         self.delete_button.pack(side="left", padx=5)
 
+        ctk.CTkButton(profile_frame, text="Change Master Password", width=160, command=self.change_master_password_dialog).pack(side="right", padx=5)
+
         # --- Tab View ---
         self.tab_view = ctk.CTkTabview(self)
         self.tab_view.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
@@ -363,6 +365,50 @@ class App(ctk.CTk):
             del self.profiles[self.current_profile_name]
             save_profiles(self.profiles)
             self.load_and_display_profiles()
+
+    def change_master_password_dialog(self):
+        current_pw = simpledialog.askstring("Change Master Password", "Enter CURRENT master password:", show='*', parent=self)
+        if current_pw is None:
+            return
+        try:
+            with open(MASTER_KEY_HASH_PATH, 'rb') as f:
+                stored_hash = f.read()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to read master key: {e}")
+            return
+        if not security.verify_password(stored_hash, current_pw):
+            messagebox.showerror("Error", "Current master password is incorrect.")
+            return
+
+        new_pw = simpledialog.askstring("Change Master Password", "Enter NEW master password:", show='*', parent=self)
+        if not new_pw:
+            return
+        confirm_pw = simpledialog.askstring("Change Master Password", "Confirm NEW master password:", show='*', parent=self)
+        if confirm_pw is None:
+            return
+        if new_pw != confirm_pw:
+            messagebox.showerror("Error", "New passwords do not match.")
+            return
+        if len(new_pw) < 8:
+            messagebox.showerror("Error", "Password must be at least 8 characters long.")
+            return
+
+        try:
+            for name, cfg in self.profiles.items():
+                if cfg.get("encrypted_job_site_password"):
+                    plain = security.decrypt(cfg.get("encrypted_job_site_password"), current_pw)
+                    cfg["encrypted_job_site_password"] = security.encrypt(plain, new_pw)
+                if cfg.get("encrypted_email_app_password"):
+                    plain = security.decrypt(cfg.get("encrypted_email_app_password"), current_pw)
+                    cfg["encrypted_email_app_password"] = security.encrypt(plain, new_pw)
+
+            save_profiles(self.profiles)
+            with open(MASTER_KEY_HASH_PATH, 'wb') as f:
+                f.write(security.hash_password(new_pw))
+            self.master_password = new_pw
+            messagebox.showinfo("Success", "Master password changed successfully.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to change master password: {e}")
 
     def save_current_profile(self):
         if not self.current_profile_name: return
