@@ -99,6 +99,11 @@ class App(ctk.CTk):
                 self.process_status_queue()
             else:
                 # If setup_data returns False, it means the user cancelled or an error occurred.
+                log.error("setup_data returned False. Application will exit. This might be due to user cancellation or an unhandled error during setup.")
+                messagebox.showerror(
+                    "Startup Aborted",
+                    "Application setup failed or was cancelled. The application will now close. Please check the logs for more details if this was unexpected."
+                )
                 # The app should close gracefully.
                 self.quit()
 
