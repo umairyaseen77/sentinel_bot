@@ -107,8 +107,8 @@ Based on the `job_site_type`, you'll need to provide a corresponding site-specif
     *   Example: `job_site_url: "https://www.amazon.jobs"`
 *   **`job_site_username`** (string, Optional)
     *   Username (email) for logging into Amazon Jobs. Required if login is desired.
-*   **`amazon_password`** (string, Optional)
-    *   Password for Amazon Jobs. Can be plaintext or encrypted (e.g., `"enc:your_encrypted_password"`) if a `master_password` is provided.
+*   **`encrypted_job_site_password`** (string, Optional)
+    *   Encrypted password for Amazon Jobs. Store it with the `enc:` prefix and provide `master_password` for decryption.
 *   **`selectors`** (dictionary, Optional but Recommended for stable scraping)
     *   CSS selectors used to extract job details from Amazon search result pages.
     *   `job_card: string` (e.g., `"div[class*='job-tile'], div.job"`)
@@ -121,7 +121,7 @@ Based on the `job_site_type`, you'll need to provide a corresponding site-specif
         amazon_config:
           job_site_url: "https://www.amazon.jobs"
           job_site_username: "your_amazon_email@example.com"
-          amazon_password: "enc:your_encrypted_amazon_password"
+          encrypted_job_site_password: "enc:your_encrypted_job_site_password"
           selectors:
             job_card: ".job-tile"
             title: ".job-title"
@@ -241,7 +241,7 @@ profiles:
     amazon_config:
       job_site_url: "https://www.amazon.jobs" # Or specific regional amazon.jobs URL
       job_site_username: "your_amazon_jobs_email@example.com"
-      amazon_password: "enc:your_encrypted_amazon_jobs_password"
+      encrypted_job_site_password: "enc:your_encrypted_job_site_password"
       selectors:
         job_card: ".job-tile"
         title: ".job-title"

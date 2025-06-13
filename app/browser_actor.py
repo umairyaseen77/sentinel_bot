@@ -261,14 +261,14 @@ class BrowserActor:
         try:
             log.info("Starting multi-step authentication flow using identify_page_type().")
             
-            encrypted_password = self.config.get('amazon_password')
+            encrypted_password = self.config.get('encrypted_job_site_password')
             if not encrypted_password:
-                log.error("Amazon password not found in configuration for multi-step auth.")
+                log.error("Encrypted job site password not found in configuration for multi-step auth.")
                 return False
 
             password = decrypt(encrypted_password, self.master_password)
             if not password:
-                log.error("Failed to decrypt Amazon password for multi-step auth.")
+                log.error("Failed to decrypt job site password for multi-step auth.")
                 return False
             log.info("Password decrypted successfully for multi-step auth.")
 
@@ -516,112 +516,6 @@ class BrowserActor:
         log.info(f"No specific page type detected for {current_url} using signatures. Returning UNKNOWN.")
         return self.PAGE_TYPE_UNKNOWN
 
-    # def detect_current_step(self) -> str: # Marked for removal/replacement
-    #     # This method is now specific to Amazon's multi-step authentication flow
-    #     # and acts as a translator from the generic identify_page_type
-    #     pass # To be removed or fully replaced by direct identify_page_type usage.
-
-    def log_current_page_details(self):
-                'a verification code has been sent', # text
-                'enter the verification code', # text
-                'verification code sent to', # text
-                'input[placeholder*="verification"]', # selector
-                'input[placeholder*="code"]' # selector
-            ]
-            if self.page.locator('input#cvf-input-code').is_visible(timeout=default_timeout):
-                log.info("2FA code page detected by specific selector #cvf-input-code")
-                return "2fa_code"
-            if self.page.locator('input[name="otpCode"]').is_visible(timeout=default_timeout):
-                log.info("2FA code page detected by specific selector input[name=\"otpCode\"]")
-                return "2fa_code"
-
-            code_selector_found = False
-            for indicator in code_indicators:
-                if indicator.startswith('input['):  # Is a selector
-                    try:
-                        if self.page.locator(indicator).is_visible(timeout=default_timeout):
-                            log.info(f"2FA code page detected via selector: {indicator}")
-                            code_selector_found = True
-                            return "2fa_code"
-                    except Exception:
-                        continue
-            if not code_selector_found:
-                if page_text_lower is None:
-                    try:
-                        page_text_lower = self.page.inner_text('body', timeout=default_timeout).lower()
-                    except Exception as e:
-                        log.warning(f"Could not get page_text for 2FA (text) detection: {e}")
-                        page_text_lower = ""
-
-                if page_text_lower:
-                    for indicator in code_indicators:
-                        if not indicator.startswith('input['):  # Is text
-                            if indicator in page_text_lower:
-                                log.info(f"2FA code page detected via text: {indicator}")
-                                return "2fa_code"
-
-            # CAPTCHA Detection
-            captcha_indicators = [
-                'img[src*="captcha"]', # selector
-                'img[alt*="captcha"]', # selector
-                '[class*="captcha"]', # selector
-                'enter the characters', # text
-                'prove you are human', # text
-                'select all images', # text
-                'choose all', # text
-                'let\'s confirm you are human' #text
-            ]
-            if self.page.locator('input#captchacharacters').is_visible(timeout=default_timeout):
-                log.info("CAPTCHA page detected by specific selector #captchacharacters")
-                return "captcha"
-            # The img[alt*="captcha"] is already in captcha_indicators, but checking it early.
-            try:
-                if self.page.locator('img[alt*="captcha"]').is_visible(timeout=default_timeout):
-                    log.info("CAPTCHA page detected by specific selector img[alt*=\"captcha\"]")
-                    return "captcha"
-            except Exception:
-                pass
-
-
-            captcha_selector_found = False
-            for indicator in captcha_indicators:
-                if indicator.startswith(('img[', '[class*=', 'input#')): # Is a selector
-                    try:
-                        if self.page.locator(indicator).is_visible(timeout=default_timeout):
-                            log.info(f"CAPTCHA page detected via selector: {indicator}")
-                            captcha_selector_found = True
-                            return "captcha"
-                    except Exception:
-                        continue
-            if not captcha_selector_found:
-                if page_text_lower is None:
-                    try:
-                        page_text_lower = self.page.inner_text('body', timeout=default_timeout).lower()
-                    except Exception as e:
-                        log.warning(f"Could not get page_text for CAPTCHA (text) detection: {e}")
-                        page_text_lower = ""
-
-                if page_text_lower:
-                    for indicator in captcha_indicators:
-                        if not indicator.startswith(('img[', '[class*=', 'input#')):  # Is text
-                            if indicator in page_text_lower:
-                                log.info(f"CAPTCHA page detected via text: {indicator}")
-                                return "captcha"
-
-            # Success Detection (URL based)
-            if 'jobsatamazon' in current_url and 'login' not in current_url:
-                # Consider adding a specific element check if needed for robustness
-                # e.g. and self.page.locator('#some_job_search_results_container').is_visible(timeout=default_timeout)
-                log.info("Success detected by URL")
-                return "success"
-
-            # If we can't determine the step after all checks
-            log.warning(f"Unknown authentication step. URL: {current_url}")
-            return "unknown"
-
-        except Exception as e:
-            log.error(f"Error detecting current step: {e}")
-            return "unknown"
 
     def log_current_page_details(self):
         """Log current page details for debugging."""
@@ -910,15 +804,12 @@ class BrowserActor:
             log.error(f"Verification method selection failed: {e}")
             return False
 
+
     def handle_2fa_code_entry(self) -> bool:
         """Handle 2FA verification code entry with manual intervention."""
         try:
             log.info("Handling 2FA verification code entry...")
-            
-            # Wait for page to load
-            # time.sleep(3) -> Kept for manual intervention as per plan
-            
-            # Look for verification code input
+
             code_selectors = [
                 'input[placeholder*="verification"]',
                 'input[placeholder*="code"]',
@@ -927,35 +818,32 @@ class BrowserActor:
                 'input[type="text"]',
                 'input:not([type])'
             ]
-            
+
             code_field_locator = None
             for selector in code_selectors:
                 try:
                     locator = self.page.locator(selector).first
-                    if locator.is_visible(timeout=1000): # Short timeout for check
+                    if locator.is_visible(timeout=1000):
                         code_field_locator = locator
                         log.info(f"Found 2FA code field with selector: {selector}")
                         break
-                except Exception: # TimeoutError or other
+                except Exception:
                     log.debug(f"2FA code field selector {selector} not found or action failed.")
                     continue
-            
+
             if not code_field_locator:
                 log.error("No 2FA code field found")
                 return False
-            
-            # Check if email automation is configured and working
+
             email_config = self.config.get('email_automation', {})
             if email_config.get('enabled'):
                 log.info("Attempting automatic 2FA code retrieval...")
-                verification_code = self.get_2fa_code_from_email() # Assuming this might call authenticator.py
-                
+                verification_code = self.get_2fa_code_from_email()
                 if verification_code:
                     try:
                         code_field_locator.fill(verification_code)
                         log.info(f"Automatically filled 2FA code: {verification_code}")
-                        # Click next button
-                        if self.click_next_button(): # Ensure click_next_button also adapted if it uses query_selector
+                        if self.click_next_button():
                             return True
                         else:
                             log.warning("Failed to click next after auto 2FA code fill. Falling back to manual.")
@@ -964,29 +852,22 @@ class BrowserActor:
                 else:
                     log.warning("Automatic 2FA code retrieval failed, falling back to manual entry")
 
-            # Manual intervention required
-            log.info("⚠️  MANUAL INTERVENTION REQUIRED: 2FA Code Entry") # Fallback if auto fails or not enabled
+            log.info("⚠️  MANUAL INTERVENTION REQUIRED: 2FA Code Entry")
             log.info("📧 Please check your email for the verification code")
             log.info("⏳ You have 120 seconds to:")
             log.info("   1. Check your email for the Amazon verification code")
             log.info("   2. Enter the code in the browser window")
             log.info("   3. Click Next")
 
-            # Wait for manual intervention
-            time.sleep(120) # Kept as per plan
+            time.sleep(120)
 
-            # Check if the code was entered and we moved to next step
             current_url = self.page.url
             if 'verification' not in current_url.lower() and 'code' not in current_url.lower():
                 log.info("2FA code appears to have been successfully entered manually!")
                 return True
 
-            # Try to help with next button if still on verification page
-            # This path is for after manual intervention, so user might have already clicked.
-            # If not, this provides a final attempt.
             log.info("Attempting to click 'Next' after manual 2FA period if still on verification page.")
             if self.click_next_button():
-                 # Check URL again
                 current_url_after_click = self.page.url
                 if 'verification' not in current_url_after_click.lower() and 'code' not in current_url_after_click.lower():
                     log.info("Successfully navigated away from 2FA page after clicking Next.")
@@ -996,38 +877,12 @@ class BrowserActor:
             else:
                 log.warning("Could not click 'Next' button after manual 2FA period or it was not found.")
 
-            log.info("2FA code entry step completed (manual or fallback path).")
-                    return True
-                else:
-                    log.warning("Automatic 2FA code retrieval failed, falling back to manual entry")
-            
-            # Manual intervention required
-            log.info("⚠️  MANUAL INTERVENTION REQUIRED: 2FA Code Entry")
-            log.info("📧 Please check your email for the verification code")
-            log.info("⏳ You have 120 seconds to:")
-            log.info("   1. Check your email for the Amazon verification code")
-            log.info("   2. Enter the code in the browser window")
-            log.info("   3. Click Next")
-            
-            # Wait for manual intervention
-            time.sleep(120)
-            
-            # Check if the code was entered and we moved to next step
-            current_url = self.page.url
-            if 'verification' not in current_url.lower() and 'code' not in current_url.lower():
-                log.info("2FA code appears to have been successfully entered!")
-                return True
-            
-            # Try to help with next button if still on verification page
-            self.click_next_button()
-            
             log.info("2FA code entry step completed")
             return True
-            
+
         except Exception as e:
             log.error(f"2FA code entry failed: {e}")
             return False
-
     def click_next_button(self):
         """Helper method to click next/continue buttons."""
         next_selectors = [

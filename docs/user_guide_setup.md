@@ -87,8 +87,8 @@ The bot's behavior is controlled by a configuration file named `profiles.yaml`, 
      ```yaml
      amazon_config:
        # ... job_site_url ...
-       job_site_username: "your_amazon_login_email@example.com"
-       amazon_password: "YourAmazonJobsPassword" # Or "enc:YourEncryptedPassword"
+      job_site_username: "your_amazon_login_email@example.com"
+      encrypted_job_site_password: "enc:YourEncryptedPassword"
      ```
    - **2FA Email Automation (for Amazon Login):**
      If Amazon login requires 2FA via email, configure the `email_automation` section under your profile (not under `amazon_config`):
@@ -113,9 +113,9 @@ The bot's behavior is controlled by a configuration file named `profiles.yaml`, 
    - Indeed searches generally do not require login.
 
 ### Master Password & Encrypting Passwords (Optional)
-If you want to encrypt sensitive information like `amazon_password` or `email_app_password`:
+If you want to encrypt sensitive information like your job site or email passwords:
 1.  Set a `master_password: "your-chosen-master-key"` at the root of your profile.
-2.  Prefix the encrypted values with `enc:`. For example, `amazon_password: "enc:U2FsdGVkX1..."`.
+2.  Prefix the encrypted values with `enc:`. For example, `encrypted_job_site_password: "enc:U2FsdGVkX1..."`.
 3.  You'll need a separate mechanism or script using the `app/security.py` module's `encrypt_data` function to generate these encrypted strings.
     *(Developer Note: A helper script for encryption could be a future addition to the project.)*
 
@@ -152,7 +152,7 @@ If you want to encrypt sensitive information like `amazon_password` or `email_ap
     *   **Too Restrictive Filters:** Your keywords/filters might be too narrow.
 
 *   **Login Failures (Amazon):**
-    *   **Credentials:** Verify `job_site_username` and `amazon_password` (ensure it's decrypted correctly if using `master_password`).
+    *   **Credentials:** Verify `job_site_username` and that `encrypted_job_site_password` decrypts correctly when using a `master_password`.
     *   **CAPTCHA:** Amazon might present a CAPTCHA. The bot has limited CAPTCHA handling (relies on `page_signatures` to identify it and then requires manual intervention in the browser window it controls).
     *   **2FA Email Automation Issues:**
         *   `email_automation` not enabled or misconfigured in `profiles.yaml`.
