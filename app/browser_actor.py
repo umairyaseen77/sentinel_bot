@@ -521,6 +521,7 @@ class BrowserActor:
     #     # and acts as a translator from the generic identify_page_type
     #     pass # To be removed or fully replaced by direct identify_page_type usage.
 
+
     def log_current_page_details(self):
         """Log current page details for debugging."""
         try:
