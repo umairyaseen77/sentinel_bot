@@ -64,6 +64,19 @@ This project is an automated bot designed to search for job listings across mult
     # playwright install chromium
     ```
 
+5.  **Create a Sample Profile File:**
+    The scripts expect a JSON profile at `data/profiles.json`. Create the file with minimal fields:
+    ```json
+    {
+      "Umair": {
+        "job_site_url": "https://www.jobsatamazon.co.uk/",
+        "job_site_username": "your-email@example.com",
+        "job_site_password": "your-password"
+      }
+    }
+    ```
+    Adjust the values to match your credentials.
+
 ## Configuration
 
 The bot is configured using a YAML file, typically named `profiles.yaml`, located in the root directory. You will need to create this file.

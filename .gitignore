@@ -6,5 +6,6 @@ venv/
 
 # Secrets and Data
 .env
-data/
+data/*
+!data/profiles.json
 logs/ 
