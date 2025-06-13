@@ -1,10 +1,11 @@
 from playwright.sync_api import sync_playwright, Browser, Page, Playwright
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, quote_plus # Added quote_plus for URL encoding keywords
 from .logger import log
-from .authenticator import get_2fa_code
+# from .authenticator import get_2fa_code # Not directly used by BrowserActor after previous refactors
+from .security import decrypt # Ensure this is imported if perform_multi_step_authentication is kept for Amazon
 import time
-import logging
+# import logging # Replaced by log
 
 class BrowserActor:
     """Manages all browser interactions using Playwright."""
@@ -21,7 +22,7 @@ class BrowserActor:
     def start_session(self) -> bool:
         """Start browser session with proper popup handling."""
         try:
-            logging.info("Starting browser session...")
+            log.info("Starting browser session...")
             
             self.playwright = sync_playwright().start()
             
@@ -40,35 +41,35 @@ class BrowserActor:
             self.page = self.context.new_page()
             self.browser = browser
             
-            logging.info("Browser session started successfully")
+            log.info("Browser session started successfully")
             return True
             
         except Exception as e:
-            logging.error(f"Failed to start browser session: {e}")
+            log.error(f"Failed to start browser session: {e}")
             return False
 
     def handle_popups(self) -> bool:
         """Handle popups and modals on Amazon Jobs UK."""
         try:
-            logging.info("Handling popups and modals...")
+            log.info("Handling popups and modals...")
             
             # Wait a moment for page to load
-            time.sleep(3)
+            self.page.wait_for_timeout(3000)
             
             # Step 1: Dismiss job alerts modal with Escape key (this works reliably)
-            logging.info("Dismissing job alerts modal...")
+            log.info("Dismissing job alerts modal...")
             self.page.keyboard.press('Escape')
-            time.sleep(2)
+            self.page.wait_for_timeout(2000)
             
             # Step 2: Handle cookies (check multiple times as they may appear on different pages)
             self.handle_cookies()
             
             # Note: Location dialog is prevented by browser context settings
-            logging.info("Popup handling completed")
+            log.info("Popup handling completed")
             return True
             
         except Exception as e:
-            logging.error(f"Failed to handle popups: {e}")
+            log.error(f"Failed to handle popups: {e}")
             return False
     
     def handle_cookies(self):
@@ -89,15 +90,15 @@ class BrowserActor:
                 try:
                     element = self.page.query_selector(selector)
                     if element and element.is_visible():
-                        logging.info(f"Accepting cookies with: {selector}")
+                        log.info(f"Accepting cookies with: {selector}")
                         element.click()
-                        time.sleep(2)
+                        self.page.wait_for_timeout(1000) # Changed from time.sleep(2)
                         return True
                 except:
                     continue
                     
         except Exception as e:
-            logging.warning(f"Cookie handling failed: {e}")
+            log.warning(f"Cookie handling failed: {e}")
             
         return False
 
@@ -106,52 +107,53 @@ class BrowserActor:
         try:
             # Amazon Jobs UK loads on main page first
             job_site_url = self.config['job_site_url']
-            logging.info(f"Navigating to {job_site_url}")
+            log.info(f"Navigating to {job_site_url}")
             
             self.page.goto(job_site_url, wait_until="domcontentloaded")
             
             # Handle popups first
             if not self.handle_popups():
-                logging.warning("Popup handling had issues, continuing...")
+                log.warning("Popup handling had issues, continuing...")
             
             # Navigate to actual job search page
             target_url = job_site_url.rstrip('/') + '/app#/jobSearch'
-            logging.info(f"Navigating to job search: {target_url}")
+            log.info(f"Navigating to job search: {target_url}")
             self.page.goto(target_url, wait_until="domcontentloaded")
-            time.sleep(3)
+            self.page.wait_for_load_state('domcontentloaded', timeout=5000) # Changed from time.sleep(3)
             
             # Handle cookies again on job search page
-            logging.info("Checking for cookies on job search page...")
+            log.info("Checking for cookies on job search page...")
             self.handle_cookies()
             
             # Handle job alerts modal that may reappear on job search page
-            logging.info("Checking for job alerts modal on job search page...")
+            log.info("Checking for job alerts modal on job search page...")
             self.page.keyboard.press('Escape')
-            time.sleep(2)
+            self.page.wait_for_timeout(2000) # Changed from time.sleep(2)
             
             return True
             
         except Exception as e:
-            logging.error(f"Failed to navigate to job search: {e}")
+            log.error(f"Failed to navigate to job search: {e}")
             return False
 
     def login(self) -> bool:
         """Attempt to login to Amazon account with multi-step authentication."""
         try:
-            logging.info("Starting multi-step Amazon login process...")
+            log.info("Starting multi-step Amazon login process...")
             
             # Step 0: First handle any blocking dialogs
             self.handle_cookies()
             
             # Dismiss job alerts modal that might be blocking
-            logging.info("Dismissing any job alerts modal before login...")
+            log.info("Dismissing any job alerts modal before login...")
             self.page.keyboard.press('Escape')
-            time.sleep(2)
+            self.page.wait_for_timeout(2000) # Changed from time.sleep(2)
             
             # Step 1: Click hamburger menu to open side panel
-            logging.info("Opening hamburger menu...")
+            log.info("Opening hamburger menu...")
             self.page.click("body", position={"x": 32, "y": 100})
-            time.sleep(3)
+            # Wait for side panel to open
+            self.page.wait_for_selector("a:has-text('Sign in')", timeout=5000) # Changed from time.sleep(3)
             
             # Step 2: Look for login/signin options in the side panel
             login_selectors = [
@@ -175,11 +177,11 @@ class BrowserActor:
                             text = element.inner_text() or element.get_attribute('aria-label') or ''
                             href = element.get_attribute('href') or ''
                             
-                            logging.info(f"Found login option: '{text}' -> {href}")
+                            log.info(f"Found login option: '{text}' -> {href}")
                             
                             # Click the first visible login option
                             element.click()
-                            time.sleep(5)
+                            self.page.wait_for_url("**/ap/signin**", timeout=7000) # Changed from time.sleep(5)
                             login_found = True
                             break
                     
@@ -187,37 +189,42 @@ class BrowserActor:
                         break
                         
                 except Exception as e:
-                    logging.warning(f"Error checking selector {selector}: {e}")
+                    log.warning(f"Error checking selector {selector}: {e}")
                     continue
             
             if not login_found:
-                logging.warning("No login options found in side panel")
+                log.warning("No login options found in side panel")
                 return False
             
             # Now we should be on the login flow
             return self.perform_multi_step_authentication()
                 
         except Exception as e:
-            logging.error(f"Login failed: {e}")
+            log.error(f"Login failed: {e}")
             return False
 
     def perform_multi_step_authentication(self) -> bool:
         """Perform multi-step Amazon authentication with smart step detection."""
         try:
-            logging.info("Starting multi-step authentication flow...")
+            log.info("Starting multi-step authentication flow...")
             
             # Decrypt password
-            encrypted_password = self.config['profiles'][self.current_profile]['amazon_password']
-            password = self.decrypt_data(encrypted_password, self.master_password)
+            # Assuming self.config is the profile_config
+            encrypted_password = self.config.get('amazon_password')
+            if not encrypted_password:
+                log.error("Amazon password not found in configuration")
+                return False
+
+            password = decrypt(encrypted_password, self.master_password)
             if not password:
-                logging.error("Failed to decrypt Amazon password")
+                log.error("Failed to decrypt Amazon password")
                 return False
             
-            logging.info("Password decrypted successfully")
+            log.info("Password decrypted successfully")
             
             # Step 1: Email entry
             if not self.handle_email_entry():
-                logging.error("Email entry failed")
+                log.error("Email entry failed")
                 return False
             
             # Multi-step authentication with retry logic
@@ -230,28 +237,28 @@ class BrowserActor:
                 attempt += 1
                 current_step = self.detect_current_step()
                 
-                logging.info(f"Attempt {attempt}: Detected step - {current_step}")
+                log.info(f"Attempt {attempt}: Detected step - {current_step}")
                 
                 # Check if we're stuck in the same step
                 if current_step == previous_step:
                     step_retry_count[current_step] = step_retry_count.get(current_step, 0) + 1
                     if step_retry_count[current_step] >= 3:
-                        logging.warning(f"Stuck in step '{current_step}' for 3 attempts, trying to break out...")
+                        log.warning(f"Stuck in step '{current_step}' for 3 attempts, trying to break out...")
                         
                         # Try to break out of loops
                         if current_step == "verification_method":
-                            logging.info("Breaking out of verification method loop...")
-                            time.sleep(10)  # Wait longer
+                            log.info("Breaking out of verification method loop...")
+                            self.page.wait_for_timeout(10000)  # Wait longer, Changed from time.sleep(10)
                             # Try to detect if we actually moved to next step
                             new_step = self.detect_current_step()
                             if new_step != current_step:
                                 current_step = new_step
-                                logging.info(f"Successfully broke out, new step: {current_step}")
+                                log.info(f"Successfully broke out, new step: {current_step}")
                             else:
-                                logging.error("Failed to break out of verification method loop")
+                                log.error("Failed to break out of verification method loop")
                                 return False
                         else:
-                            logging.error(f"Unable to break out of step: {current_step}")
+                            log.error(f"Unable to break out of step: {current_step}")
                             return False
                 else:
                     # Reset retry count for new step
@@ -262,148 +269,208 @@ class BrowserActor:
                 # Handle each step
                 if current_step == "pin_entry":
                     if not self.handle_pin_entry(password):
-                        logging.error("PIN entry failed")
+                        log.error("PIN entry failed")
                         return False
                         
                 elif current_step == "verification_method":
                     if not self.handle_verification_method_selection():
-                        logging.error("Verification method selection failed")
+                        log.error("Verification method selection failed")
                         return False
                         
                 elif current_step == "2fa_code":
                     if not self.handle_2fa_code_entry():
-                        logging.error("2FA code entry failed")
+                        log.error("2FA code entry failed")
                         return False
                         
                 elif current_step == "captcha":
                     if not self.handle_captcha():
-                        logging.error("Captcha handling failed")
+                        log.error("Captcha handling failed")
                         return False
                         
                 elif current_step == "success":
-                    logging.info("Authentication completed successfully!")
+                    log.info("Authentication completed successfully!")
                     return True
                     
                 elif current_step == "unknown":
-                    logging.warning(f"Unknown authentication step detected on attempt {attempt}")
+                    log.warning(f"Unknown authentication step detected on attempt {attempt}")
                     # Log current page details for debugging
                     self.log_current_page_details()
                     
                     # Wait a bit and try again
-                    time.sleep(5)
+                    self.page.wait_for_timeout(5000) # Changed from time.sleep(5)
                     
                     # If we've been stuck on unknown for too long, fail
                     if step_retry_count.get("unknown", 0) >= 3:
-                        logging.error("Too many unknown steps, authentication failed")
+                        log.error("Too many unknown steps, authentication failed")
                         return False
                 
                 # Wait between steps
-                time.sleep(3)
+                self.page.wait_for_timeout(3000) # Changed from time.sleep(3)
             
-            logging.error(f"Authentication failed after {max_attempts} attempts")
+            log.error(f"Authentication failed after {max_attempts} attempts")
             return False
             
         except Exception as e:
-            logging.error(f"Multi-step authentication failed: {e}")
+            log.error(f"Multi-step authentication failed: {e}")
             return False
 
     def detect_current_step(self) -> str:
-        """Detect which step of the authentication process we're currently on."""
+        """Detect which step of the authentication process we're currently on with improved efficiency."""
+        default_timeout = 1500  # ms
+        page_text_lower = None  # Initialize
+
         try:
-            current_url = self.page.url.lower()
-            page_text = self.page.inner_text('body').lower()
-            
-            # Check for PIN entry page
+            current_url = self.page.url.lower() # Keep URL check as it's efficient
+
+            # PIN Entry Detection
             pin_indicators = [
-                'enter your personal pin',
-                'personal pin',
-                'input[placeholder*="pin"]',
-                'input[name*="pin"]',
-                'input[id*="pin"]'
+                'enter your personal pin', # text
+                'personal pin', # text
+                'input[placeholder*="pin"]', # selector
+                'input[name*="pin"]', # selector
+                'input[id*="pin"]' # selector
             ]
-            
+            if self.page.locator('input#ap_pin_mobile_field').is_visible(timeout=default_timeout):
+                log.info("PIN page detected by specific selector #ap_pin_mobile_field")
+                return "pin_entry"
+
+            pin_selector_found = False
             for indicator in pin_indicators:
-                if indicator.startswith('input['):
-                    # This is a selector
+                if indicator.startswith('input['):  # Is a selector
                     try:
-                        element = self.page.query_selector(indicator)
-                        if element and element.is_visible():
-                            logging.info(f"PIN page detected via selector: {indicator}")
+                        if self.page.locator(indicator).is_visible(timeout=default_timeout):
+                            log.info(f"PIN page detected via selector: {indicator}")
+                            pin_selector_found = True
                             return "pin_entry"
-                    except:
+                    except Exception: # Playwright might throw if selector is invalid / times out
                         continue
-                else:
-                    # This is text to search for
-                    if indicator in page_text:
-                        logging.info(f"PIN page detected via text: {indicator}")
-                        return "pin_entry"
-            
-            # Check for verification method selection (but be more specific)
-            if 'where should we send your verification code' in page_text and 'email' in page_text:
-                # Make sure we're not stuck in a loop
-                send_button = self.page.query_selector('button:has-text("Send verification code")')
-                if send_button and send_button.is_visible() and not send_button.is_disabled():
-                    logging.info("Verification method page detected")
-                    return "verification_method"
-            
-            # Check for 2FA code entry
+            if not pin_selector_found:
+                if page_text_lower is None:
+                    try:
+                        page_text_lower = self.page.inner_text('body', timeout=default_timeout).lower()
+                    except Exception as e:
+                        log.warning(f"Could not get page_text for PIN (text) detection: {e}")
+                        page_text_lower = ""
+
+                if page_text_lower:
+                    for indicator in pin_indicators:
+                        if not indicator.startswith('input['):  # Is text
+                            if indicator in page_text_lower:
+                                log.info(f"PIN page detected via text: {indicator}")
+                                return "pin_entry"
+
+            # Verification Method Detection
+            # Current logic is fairly specific, let's adapt it with timeouts
+            try:
+                if self.page.locator('text="Where should we send your verification code"').is_visible(timeout=default_timeout):
+                    send_button = self.page.locator('button:has-text("Send verification code")')
+                    if send_button.is_visible(timeout=default_timeout) and send_button.is_enabled(timeout=default_timeout):
+                        log.info("Verification method page detected")
+                        return "verification_method"
+            except Exception:
+                pass # Element not visible or other error
+
+            # 2FA Code Entry Detection
             code_indicators = [
-                'a verification code has been sent',
-                'enter the verification code',
-                'verification code sent to',
-                'input[placeholder*="verification"]',
-                'input[placeholder*="code"]'
+                'a verification code has been sent', # text
+                'enter the verification code', # text
+                'verification code sent to', # text
+                'input[placeholder*="verification"]', # selector
+                'input[placeholder*="code"]' # selector
             ]
-            
+            if self.page.locator('input#cvf-input-code').is_visible(timeout=default_timeout):
+                log.info("2FA code page detected by specific selector #cvf-input-code")
+                return "2fa_code"
+            if self.page.locator('input[name="otpCode"]').is_visible(timeout=default_timeout):
+                log.info("2FA code page detected by specific selector input[name=\"otpCode\"]")
+                return "2fa_code"
+
+            code_selector_found = False
             for indicator in code_indicators:
-                if indicator.startswith('input['):
+                if indicator.startswith('input['):  # Is a selector
                     try:
-                        element = self.page.query_selector(indicator)
-                        if element and element.is_visible():
-                            logging.info(f"2FA code page detected via selector: {indicator}")
+                        if self.page.locator(indicator).is_visible(timeout=default_timeout):
+                            log.info(f"2FA code page detected via selector: {indicator}")
+                            code_selector_found = True
                             return "2fa_code"
-                    except:
+                    except Exception:
                         continue
-                else:
-                    if indicator in page_text:
-                        logging.info(f"2FA code page detected via text: {indicator}")
-                        return "2fa_code"
-            
-            # Check for captcha (more comprehensive)
-            captcha_indicators = [
-                'img[src*="captcha"]',
-                'img[alt*="captcha"]',
-                '[class*="captcha"]',
-                'enter the characters',
-                'prove you are human',
-                'select all images',
-                'choose all',
-                'let\'s confirm you are human'
-            ]
-            
-            for indicator in captcha_indicators:
-                if indicator.startswith(('img[', '[class')):
+            if not code_selector_found:
+                if page_text_lower is None:
                     try:
-                        element = self.page.query_selector(indicator)
-                        if element and element.is_visible():
-                            logging.info(f"Captcha detected via selector: {indicator}")
+                        page_text_lower = self.page.inner_text('body', timeout=default_timeout).lower()
+                    except Exception as e:
+                        log.warning(f"Could not get page_text for 2FA (text) detection: {e}")
+                        page_text_lower = ""
+
+                if page_text_lower:
+                    for indicator in code_indicators:
+                        if not indicator.startswith('input['):  # Is text
+                            if indicator in page_text_lower:
+                                log.info(f"2FA code page detected via text: {indicator}")
+                                return "2fa_code"
+
+            # CAPTCHA Detection
+            captcha_indicators = [
+                'img[src*="captcha"]', # selector
+                'img[alt*="captcha"]', # selector
+                '[class*="captcha"]', # selector
+                'enter the characters', # text
+                'prove you are human', # text
+                'select all images', # text
+                'choose all', # text
+                'let\'s confirm you are human' #text
+            ]
+            if self.page.locator('input#captchacharacters').is_visible(timeout=default_timeout):
+                log.info("CAPTCHA page detected by specific selector #captchacharacters")
+                return "captcha"
+            # The img[alt*="captcha"] is already in captcha_indicators, but checking it early.
+            try:
+                if self.page.locator('img[alt*="captcha"]').is_visible(timeout=default_timeout):
+                    log.info("CAPTCHA page detected by specific selector img[alt*=\"captcha\"]")
+                    return "captcha"
+            except Exception:
+                pass
+
+
+            captcha_selector_found = False
+            for indicator in captcha_indicators:
+                if indicator.startswith(('img[', '[class*=', 'input#')): # Is a selector
+                    try:
+                        if self.page.locator(indicator).is_visible(timeout=default_timeout):
+                            log.info(f"CAPTCHA page detected via selector: {indicator}")
+                            captcha_selector_found = True
                             return "captcha"
-                    except:
+                    except Exception:
                         continue
-                else:
-                    if indicator in page_text:
-                        logging.info(f"Captcha detected via text: {indicator}")
-                        return "captcha"
-            
-            # Check for successful login (back to jobs site)
+            if not captcha_selector_found:
+                if page_text_lower is None:
+                    try:
+                        page_text_lower = self.page.inner_text('body', timeout=default_timeout).lower()
+                    except Exception as e:
+                        log.warning(f"Could not get page_text for CAPTCHA (text) detection: {e}")
+                        page_text_lower = ""
+
+                if page_text_lower:
+                    for indicator in captcha_indicators:
+                        if not indicator.startswith(('img[', '[class*=', 'input#')):  # Is text
+                            if indicator in page_text_lower:
+                                log.info(f"CAPTCHA page detected via text: {indicator}")
+                                return "captcha"
+
+            # Success Detection (URL based)
             if 'jobsatamazon' in current_url and 'login' not in current_url:
+                # Consider adding a specific element check if needed for robustness
+                # e.g. and self.page.locator('#some_job_search_results_container').is_visible(timeout=default_timeout)
+                log.info("Success detected by URL")
                 return "success"
-            
-            # If we can't determine the step, return unknown
+
+            # If we can't determine the step after all checks
+            log.warning(f"Unknown authentication step. URL: {current_url}")
             return "unknown"
-            
+
         except Exception as e:
-            logging.error(f"Error detecting current step: {e}")
+            log.error(f"Error detecting current step: {e}")
             return "unknown"
 
     def log_current_page_details(self):
@@ -413,22 +480,22 @@ class BrowserActor:
             page_title = self.page.title()
             page_text_snippet = self.page.inner_text('body')[:500]  # First 500 chars
             
-            logging.info("=== CURRENT PAGE DETAILS ===")
-            logging.info(f"URL: {current_url}")
-            logging.info(f"Title: {page_title}")
-            logging.info(f"Page text snippet: {page_text_snippet}")
-            logging.info("============================")
+            log.info("=== CURRENT PAGE DETAILS ===")
+            log.info(f"URL: {current_url}")
+            log.info(f"Title: {page_title}")
+            log.info(f"Page text snippet: {page_text_snippet}")
+            log.info("============================")
             
         except Exception as e:
-            logging.error(f"Failed to log page details: {e}")
+            log.error(f"Failed to log page details: {e}")
 
     def handle_email_entry(self) -> bool:
         """Handle email entry step."""
         try:
-            logging.info("Handling email entry step...")
+            log.info("Handling email entry step...")
             
             # Wait for page to load
-            time.sleep(3)
+            self.page.wait_for_load_state('domcontentloaded', timeout=5000) # Changed from time.sleep(3)
             
             # Look for email input field
             email_selectors = [
@@ -450,16 +517,20 @@ class BrowserActor:
                 try:
                     email_field = self.page.query_selector(selector)
                     if email_field and email_field.is_visible():
-                        email_field.fill(self.config['job_site_username'])
-                        logging.info(f"Email filled with {selector}: {self.config['job_site_username']}")
+                        job_site_username = self.config.get('job_site_username')
+                        if not job_site_username:
+                            log.error("job_site_username not found in config for email entry")
+                            return False
+                        email_field.fill(job_site_username)
+                        log.info(f"Email filled with {selector}: {job_site_username}")
                         email_filled = True
                         break
                 except Exception as e:
-                    logging.warning(f"Failed to fill email with {selector}: {e}")
+                    log.warning(f"Failed to fill email with {selector}: {e}")
                     continue
             
             if not email_filled:
-                logging.error("No email field found or filled")
+                log.error("No email field found or filled")
                 return False
             
             # Click next/continue button
@@ -482,39 +553,39 @@ class BrowserActor:
                     button = self.page.query_selector(selector)
                     if button and button.is_visible():
                         button.click()
-                        time.sleep(5)
-                        logging.info(f"Clicked next button with selector: {selector}")
+                        self.page.wait_for_load_state('domcontentloaded', timeout=7000) # Changed from time.sleep(5)
+                        log.info(f"Clicked next button with selector: {selector}")
                         next_clicked = True
                         break
                 except Exception as e:
-                    logging.warning(f"Failed to click next with {selector}: {e}")
+                    log.warning(f"Failed to click next with {selector}: {e}")
                     continue
             
             if not next_clicked:
                 # Try pressing Enter key as alternative
-                logging.info("No next button found, trying Enter key...")
+                log.info("No next button found, trying Enter key...")
                 try:
                     self.page.keyboard.press('Enter')
-                    time.sleep(5)
-                    logging.info("Pressed Enter key as next")
+                    self.page.wait_for_load_state('domcontentloaded', timeout=7000) # Changed from time.sleep(5)
+                    log.info("Pressed Enter key as next")
                 except Exception as e:
-                    logging.warning(f"Failed to press Enter: {e}")
+                    log.warning(f"Failed to press Enter: {e}")
                     return False
             
-            logging.info("Email entry step completed")
+            log.info("Email entry step completed")
             return True
             
         except Exception as e:
-            logging.error(f"Email entry step failed: {e}")
+            log.error(f"Email entry step failed: {e}")
             return False
 
     def handle_pin_entry(self, password: str) -> bool:
         """Handle PIN entry step with improved detection."""
         try:
-            logging.info("Handling PIN entry step...")
+            log.info("Handling PIN entry step...")
             
             # Wait for page to load
-            time.sleep(3)
+            self.page.wait_for_load_state('domcontentloaded', timeout=5000) # Changed from time.sleep(3)
             
             # Look for PIN input field with more specific selectors
             pin_selectors = [
@@ -538,18 +609,18 @@ class BrowserActor:
                         page_text = self.page.inner_text('body').lower()
                         if 'pin' in page_text or 'personal' in page_text:
                             pin_field = field
-                            logging.info(f"Found PIN field with selector: {selector}")
+                            log.info(f"Found PIN field with selector: {selector}")
                             break
                 except:
                     continue
             
             if not pin_field:
-                logging.error("No PIN field found")
+                log.error("No PIN field found")
                 return False
             
             # Use the password as PIN (assuming it's the same)
             pin_field.fill(password)
-            logging.info("PIN filled successfully")
+            log.info("PIN filled successfully")
             
             # Click next button
             next_selectors = [
@@ -566,8 +637,8 @@ class BrowserActor:
                     button = self.page.query_selector(selector)
                     if button and button.is_visible() and not button.is_disabled():
                         button.click()
-                        time.sleep(5)
-                        logging.info(f"Clicked next button after PIN entry: {selector}")
+                        self.page.wait_for_load_state('domcontentloaded', timeout=7000) # Changed from time.sleep(5)
+                        log.info(f"Clicked next button after PIN entry: {selector}")
                         next_clicked = True
                         break
                 except Exception as e:
@@ -575,34 +646,34 @@ class BrowserActor:
             
             if not next_clicked:
                 # Try Enter key as fallback
-                logging.info("No next button found, trying Enter key...")
+                log.info("No next button found, trying Enter key...")
                 try:
                     self.page.keyboard.press('Enter')
-                    time.sleep(5)
-                    logging.info("Pressed Enter key after PIN entry")
+                    self.page.wait_for_load_state('domcontentloaded', timeout=7000) # Changed from time.sleep(5)
+                    log.info("Pressed Enter key after PIN entry")
                 except Exception as e:
-                    logging.warning(f"Failed to press Enter: {e}")
+                    log.warning(f"Failed to press Enter: {e}")
                     return False
             
-            logging.info("PIN entry step completed")
+            log.info("PIN entry step completed")
             return True
             
         except Exception as e:
-            logging.error(f"PIN entry step failed: {e}")
+            log.error(f"PIN entry step failed: {e}")
             return False
 
     def handle_verification_method_selection(self) -> bool:
         """Handle verification method selection (choose email)."""
         try:
-            logging.info("Handling verification method selection...")
+            log.info("Handling verification method selection...")
             
             # Wait for page to load
-            time.sleep(3)
+            self.page.wait_for_load_state('domcontentloaded', timeout=5000) # Changed from time.sleep(3)
             
             # Check if we're actually on the verification method page
             page_text = self.page.inner_text('body').lower()
             if 'where should we send your verification code' not in page_text:
-                logging.info("Not on verification method page, skipping...")
+                log.info("Not on verification method page, skipping...")
                 return True
             
             # Look for email verification option (should be selected by default)
@@ -623,14 +694,14 @@ class BrowserActor:
                         if selector.startswith('input[type="radio"]'):
                             if not element.is_checked():
                                 element.click()
-                                logging.info(f"Selected email verification option: {selector}")
+                                log.info(f"Selected email verification option: {selector}")
                                 email_selected = True
-                                time.sleep(2)
+                                self.page.wait_for_timeout(2000) # Changed from time.sleep(2)
                         else:
                             element.click()
-                            logging.info(f"Selected email verification option: {selector}")
+                            log.info(f"Selected email verification option: {selector}")
                             email_selected = True
-                            time.sleep(2)
+                            self.page.wait_for_timeout(2000) # Changed from time.sleep(2)
                         break
                 except:
                     continue
@@ -650,40 +721,40 @@ class BrowserActor:
                     button = self.page.query_selector(selector)
                     if button and button.is_visible() and not button.is_disabled():
                         button.click()
-                        time.sleep(5)
-                        logging.info(f"Clicked send verification code: {selector}")
+                        self.page.wait_for_load_state('domcontentloaded', timeout=7000) # Changed from time.sleep(5)
+                        log.info(f"Clicked send verification code: {selector}")
                         send_clicked = True
                         break
                 except Exception as e:
                     continue
             
             if not send_clicked:
-                logging.warning("Could not find or click send verification code button")
+                log.warning("Could not find or click send verification code button")
                 return False
             
             # Wait a bit longer to see if page changes
-            time.sleep(10)
+            self.page.wait_for_timeout(10000) # Changed from time.sleep(10)
             
             # Check if we've moved to the next step
             new_page_text = self.page.inner_text('body').lower()
             if 'where should we send your verification code' not in new_page_text:
-                logging.info("Successfully moved past verification method selection")
+                log.info("Successfully moved past verification method selection")
                 return True
             else:
-                logging.warning("Still on verification method page after clicking send")
+                log.warning("Still on verification method page after clicking send")
                 return False
             
         except Exception as e:
-            logging.error(f"Verification method selection failed: {e}")
+            log.error(f"Verification method selection failed: {e}")
             return False
 
     def handle_2fa_code_entry(self) -> bool:
         """Handle 2FA verification code entry with manual intervention."""
         try:
-            logging.info("Handling 2FA verification code entry...")
+            log.info("Handling 2FA verification code entry...")
             
             # Wait for page to load
-            time.sleep(3)
+            # time.sleep(3) -> Kept for manual intervention as per plan
             
             # Look for verification code input
             code_selectors = [
@@ -701,39 +772,39 @@ class BrowserActor:
                     field = self.page.query_selector(selector)
                     if field and field.is_visible():
                         code_field = field
-                        logging.info(f"Found 2FA code field with selector: {selector}")
+                        log.info(f"Found 2FA code field with selector: {selector}")
                         break
                 except:
                     continue
             
             if not code_field:
-                logging.error("No 2FA code field found")
+                log.error("No 2FA code field found")
                 return False
             
             # Check if email automation is configured and working
             email_config = self.config.get('email_automation', {})
             if email_config.get('enabled'):
-                logging.info("Attempting automatic 2FA code retrieval...")
+                log.info("Attempting automatic 2FA code retrieval...")
                 verification_code = self.get_2fa_code_from_email()
                 
                 if verification_code:
                     # Fill the verification code automatically
                     code_field.fill(verification_code)
-                    logging.info(f"Automatically filled 2FA code: {verification_code}")
+                    log.info(f"Automatically filled 2FA code: {verification_code}")
                     
                     # Click next button
                     self.click_next_button()
                     return True
                 else:
-                    logging.warning("Automatic 2FA code retrieval failed, falling back to manual entry")
+                    log.warning("Automatic 2FA code retrieval failed, falling back to manual entry")
             
             # Manual intervention required
-            logging.info("⚠️  MANUAL INTERVENTION REQUIRED: 2FA Code Entry")
-            logging.info("📧 Please check your email for the verification code")
-            logging.info("⏳ You have 120 seconds to:")
-            logging.info("   1. Check your email for the Amazon verification code")
-            logging.info("   2. Enter the code in the browser window")
-            logging.info("   3. Click Next")
+            log.info("⚠️  MANUAL INTERVENTION REQUIRED: 2FA Code Entry")
+            log.info("📧 Please check your email for the verification code")
+            log.info("⏳ You have 120 seconds to:")
+            log.info("   1. Check your email for the Amazon verification code")
+            log.info("   2. Enter the code in the browser window")
+            log.info("   3. Click Next")
             
             # Wait for manual intervention
             time.sleep(120)
@@ -741,17 +812,17 @@ class BrowserActor:
             # Check if the code was entered and we moved to next step
             current_url = self.page.url
             if 'verification' not in current_url.lower() and 'code' not in current_url.lower():
-                logging.info("2FA code appears to have been successfully entered!")
+                log.info("2FA code appears to have been successfully entered!")
                 return True
             
             # Try to help with next button if still on verification page
             self.click_next_button()
             
-            logging.info("2FA code entry step completed")
+            log.info("2FA code entry step completed")
             return True
             
         except Exception as e:
-            logging.error(f"2FA code entry failed: {e}")
+            log.error(f"2FA code entry failed: {e}")
             return False
 
     def click_next_button(self):
@@ -769,8 +840,8 @@ class BrowserActor:
                 button = self.page.query_selector(selector)
                 if button and button.is_visible() and not button.is_disabled():
                     button.click()
-                    time.sleep(5)
-                    logging.info(f"Clicked next button: {selector}")
+                    self.page.wait_for_load_state('domcontentloaded', timeout=7000) # Changed from time.sleep(5)
+                    log.info(f"Clicked next button: {selector}")
                     return True
             except:
                 continue
@@ -780,20 +851,20 @@ class BrowserActor:
     def handle_captcha(self) -> bool:
         """Handle captcha with manual intervention (realistic approach)."""
         try:
-            logging.info("Captcha detected - requiring manual intervention")
+            log.info("Captcha detected - requiring manual intervention")
             
             # Wait for captcha to load
-            time.sleep(3)
+            # time.sleep(3) -> Kept for manual intervention as per plan
             
             # Log what type of captcha we're dealing with
             captcha_info = self.analyze_captcha()
             
-            logging.info("⚠️  MANUAL INTERVENTION REQUIRED: Captcha Solving")
-            logging.info(f"🧩 Captcha type detected: {captcha_info}")
-            logging.info("⏳ You have 180 seconds (3 minutes) to:")
-            logging.info("   1. Solve the captcha in the browser window")
-            logging.info("   2. Click submit/continue")
-            logging.info("   3. Complete any additional verification steps")
+            log.info("⚠️  MANUAL INTERVENTION REQUIRED: Captcha Solving")
+            log.info(f"🧩 Captcha type detected: {captcha_info}")
+            log.info("⏳ You have 180 seconds (3 minutes) to:")
+            log.info("   1. Solve the captcha in the browser window")
+            log.info("   2. Click submit/continue")
+            log.info("   3. Complete any additional verification steps")
             
             # Wait for manual captcha solving
             time.sleep(180)
@@ -803,14 +874,14 @@ class BrowserActor:
             page_text = self.page.inner_text('body').lower()
             
             if 'captcha' not in current_url.lower() and 'captcha' not in page_text:
-                logging.info("Captcha appears to have been solved!")
+                log.info("Captcha appears to have been solved!")
                 return True
             
-            logging.info("Captcha handling completed (manual intervention)")
+            log.info("Captcha handling completed (manual intervention)")
             return True
             
         except Exception as e:
-            logging.error(f"Captcha handling failed: {e}")
+            log.error(f"Captcha handling failed: {e}")
             return False
 
     def analyze_captcha(self) -> str:
@@ -842,23 +913,26 @@ class BrowserActor:
             import re
             import time
             
-            logging.info("Attempting to retrieve 2FA code from email...")
+            log.info("Attempting to retrieve 2FA code from email...")
             
             # Check if email automation is configured
             email_config = self.config.get('email_automation', {})
             if not email_config.get('enabled'):
-                logging.warning("Email automation not configured. Run setup_email_automation.py first.")
+                log.warning("Email automation not configured. Run setup_email_automation.py first.")
                 return None
             
             # Get email credentials from configuration
-            email_address = email_config.get('email_address', self.config['job_site_username'])
+            email_address = email_config.get('email_address', self.config.get('job_site_username'))
             
             try:
-                from .security import decrypt
-                email_password = decrypt(email_config['encrypted_app_password'], self.master_password)
-                logging.info("Email app password decrypted successfully")
+                # from .security import decrypt # This is already imported at the top
+                email_password = decrypt(email_config.get('encrypted_app_password'), self.master_password)
+                if not email_password:
+                    log.error("Failed to decrypt email app password, or password not found in email_config")
+                    return None
+                log.info("Email app password decrypted successfully")
             except Exception as e:
-                logging.error(f"Failed to decrypt email app password: {e}")
+                log.error(f"Failed to decrypt email app password: {e}")
                 return None
             
             # Gmail IMAP settings
@@ -866,7 +940,7 @@ class BrowserActor:
             imap_port = 993
             
             # Wait a bit for the email to arrive
-            logging.info("Waiting 10 seconds for verification email to arrive...")
+            log.info("Waiting 10 seconds for verification email to arrive...")
             time.sleep(10)
             
             # Connect to email
@@ -874,7 +948,7 @@ class BrowserActor:
             
             try:
                 mail.login(email_address, email_password)
-                logging.info("Successfully connected to email account")
+                log.info("Successfully connected to email account")
                 
                 # Select inbox
                 mail.select("inbox")
@@ -915,7 +989,7 @@ class BrowserActor:
                                     email_body = self.extract_email_body(email_message)
                                     email_subject = email_message.get("Subject", "")
                                     
-                                    logging.info(f"Checking email with subject: {email_subject}")
+                                    log.info(f"Checking email with subject: {email_subject}")
                                     
                                     # Look for verification code patterns
                                     code_patterns = [
@@ -936,7 +1010,7 @@ class BrowserActor:
                                             for match in matches:
                                                 if len(match) >= 4 and len(match) <= 8:
                                                     verification_code = match
-                                                    logging.info(f"Found verification code: {verification_code}")
+                                                    log.info(f"Found verification code: {verification_code}")
                                                     break
                                         
                                         if verification_code:
@@ -945,18 +1019,18 @@ class BrowserActor:
                                     if verification_code:
                                         break
                     except Exception as e:
-                        logging.warning(f"Error searching with criteria '{criteria}': {e}")
+                        log.warning(f"Error searching with criteria '{criteria}': {e}")
                         continue
                 
                 mail.logout()
                 
                 if verification_code:
-                    logging.info(f"Successfully retrieved 2FA code: {verification_code}")
+                    log.info(f"Successfully retrieved 2FA code: {verification_code}")
                     return verification_code
                 else:
-                    logging.warning("No verification code found in recent emails")
+                    log.warning("No verification code found in recent emails")
                     # Try waiting a bit longer and search again
-                    logging.info("Waiting additional 15 seconds for email...")
+                    log.info("Waiting additional 15 seconds for email...")
                     time.sleep(15)
                     
                     # Try one more time with broader search
@@ -982,7 +1056,7 @@ class BrowserActor:
                                         matches = re.findall(r'\b(\d{4,8})\b', email_body)
                                         for match in matches:
                                             if len(match) >= 4 and len(match) <= 8:
-                                                logging.info(f"Found potential code in recent email: {match}")
+                                                log.info(f"Found potential code in recent email: {match}")
                                                 mail.logout()
                                                 return match
                                 except:
@@ -995,13 +1069,13 @@ class BrowserActor:
                     return None
                     
             except Exception as e:
-                logging.error(f"Email login failed: {e}")
-                logging.info("Note: For Gmail, you need to enable 2FA and create an App Password")
-                logging.info("Run: python setup_email_automation.py")
+                log.error(f"Email login failed: {e}")
+                log.info("Note: For Gmail, you need to enable 2FA and create an App Password")
+                log.info("Run: python setup_email_automation.py")
                 return None
                 
         except Exception as e:
-            logging.error(f"Failed to retrieve 2FA code from email: {e}")
+            log.error(f"Failed to retrieve 2FA code from email: {e}")
             # Fallback: try to extract code from page if it's pre-filled or visible
             return self.extract_code_from_page()
 
@@ -1027,7 +1101,7 @@ class BrowserActor:
             return body
             
         except Exception as e:
-            logging.error(f"Error extracting email body: {e}")
+            log.error(f"Error extracting email body: {e}")
             return ""
 
     def extract_code_from_page(self):
@@ -1048,22 +1122,22 @@ class BrowserActor:
                 if matches:
                     for match in matches:
                         if len(match) >= 4 and len(match) <= 8:
-                            logging.info(f"Found code on page: {match}")
+                            log.info(f"Found code on page: {match}")
                             return match
             
             return None
             
         except Exception as e:
-            logging.error(f"Error extracting code from page: {e}")
+            log.error(f"Error extracting code from page: {e}")
             return None
 
     def search_jobs(self) -> bool:
         """Search for jobs based on profile criteria."""
         try:
-            logging.info("Searching for jobs...")
+            log.info("Searching for jobs...")
             
             # Wait for page to load
-            time.sleep(3)
+            self.page.wait_for_load_state('domcontentloaded', timeout=5000) # Changed from time.sleep(3)
             
             # Look for search inputs
             search_selectors = [
@@ -1081,7 +1155,7 @@ class BrowserActor:
                         search_field = self.page.query_selector(selector)
                         if search_field and search_field.is_visible():
                             search_field.fill(keywords)
-                            logging.info(f"Filled search with keywords: {keywords}")
+                            log.info(f"Filled search with keywords: {keywords}")
                             break
                     except:
                         continue
@@ -1102,7 +1176,7 @@ class BrowserActor:
                         location_field = self.page.query_selector(selector)
                         if location_field and location_field.is_visible():
                             location_field.fill(location)
-                            logging.info(f"Filled location: {location}")
+                            log.info(f"Filled location: {location}")
                             break
                     except:
                         continue
@@ -1119,8 +1193,8 @@ class BrowserActor:
                     search_button = self.page.query_selector(selector)
                     if search_button and search_button.is_visible():
                         search_button.click()
-                        time.sleep(5)
-                        logging.info("Search submitted")
+                        self.page.wait_for_load_state('networkidle', timeout=10000) # Changed from time.sleep(5)
+                        log.info("Search submitted")
                         break
                 except:
                     continue
@@ -1128,16 +1202,16 @@ class BrowserActor:
             return True
             
         except Exception as e:
-            logging.error(f"Job search failed: {e}")
+            log.error(f"Job search failed: {e}")
             return False
 
     def extract_job_listings(self) -> list:
         """Extract job listings from the current page."""
         try:
-            logging.info("Extracting job listings...")
+            log.info("Extracting job listings...")
             
             # Wait for results to load
-            time.sleep(5)
+            self.page.wait_for_selector("div[class*='job']", timeout=7000) # Changed from time.sleep(5)
             
             # Use the selectors we discovered that work
             job_selectors = [
@@ -1153,7 +1227,7 @@ class BrowserActor:
                 try:
                     job_elements = self.page.query_selector_all(selector)
                     if job_elements:
-                        logging.info(f"Found {len(job_elements)} job elements with selector: {selector}")
+                        log.info(f"Found {len(job_elements)} job elements with selector: {selector}")
                         
                         for element in job_elements:
                             if element.is_visible():
@@ -1183,21 +1257,21 @@ class BrowserActor:
                                     jobs.append(job)
                                     
                                 except Exception as e:
-                                    logging.warning(f"Error extracting job details: {e}")
+                                    log.warning(f"Error extracting job details: {e}")
                                     continue
                         
                         if jobs:
                             break  # Found jobs with this selector, stop trying others
                             
                 except Exception as e:
-                    logging.warning(f"Error with selector {selector}: {e}")
+                    log.warning(f"Error with selector {selector}: {e}")
                     continue
             
-            logging.info(f"Extracted {len(jobs)} job listings")
+            log.info(f"Extracted {len(jobs)} job listings")
             return jobs
             
         except Exception as e:
-            logging.error(f"Failed to extract job listings: {e}")
+            log.error(f"Failed to extract job listings: {e}")
             return []
 
     def close_session(self):
@@ -1213,42 +1287,201 @@ class BrowserActor:
                 self.playwright.stop()
             
             self.session_active = False
-            logging.info("Browser session closed")
+            log.info("Browser session closed")
             
         except Exception as e:
-            logging.error(f"Error closing browser session: {e}")
+            log.error(f"Error closing browser session: {e}")
 
     def run_job_search_session(self) -> list:
-        """Run a complete job search session."""
+        """Run a complete job search session, dispatching to site-specific methods."""
+        job_site_type = self.config.get('job_site_type', 'amazon') # Default to amazon if not specified
+        jobs = []
+
         try:
-            # Start browser
             if not self.start_session():
                 return []
+
+            if job_site_type == 'indeed':
+                log.info("Running Indeed job search session.")
+                # Get keywords and location for Indeed
+                # Ensure keywords is a list of strings
+                keywords_config = self.config.get('keywords', {})
+                required_keywords = keywords_config.get('required', [])
+                optional_keywords = keywords_config.get('optional', [])
+                combined_keywords = required_keywords + optional_keywords
+
+                # Ensure location is a string
+                filters_config = self.config.get('filters', {})
+                cities = filters_config.get('cities', [])
+                location_str = cities[0] if cities else self.config.get('default_location', "") # Fallback if needed
+
+                if not combined_keywords or not location_str:
+                    log.error("Keywords or location missing for Indeed search in profile config.")
+                    if not combined_keywords:
+                        log.error(f"Combined keywords list is empty. Required: {required_keywords}, Optional: {optional_keywords}")
+                    if not location_str:
+                        log.error(f"Location string is empty. Cities: {cities}, Default location: {self.config.get('default_location', '')}")
+                    return []
+
+                if not self.navigate_to_indeed_job_search(combined_keywords, location_str):
+                    log.error("Failed to navigate to Indeed job search page.")
+                    return []
+
+                jobs = self.extract_indeed_job_listings()
+
+            elif job_site_type == 'amazon': # Existing Amazon logic
+                log.info("Running Amazon job search session.")
+                if not self.navigate_to_job_search(): # Amazon specific navigation
+                    return []
+
+                if self.config.get('job_site_username'): # Amazon specific login
+                    login_success = self.login()
+                    if login_success:
+                        log.info("Amazon login successful.")
+                    else:
+                        log.warning("Amazon login failed, continuing without login.")
+
+                if not self.search_jobs(): # Amazon specific search
+                    log.warning("Amazon job search failed, trying to extract from current page.")
+
+                jobs = self.extract_job_listings() # Amazon specific extraction (assuming this is the generic one for now)
             
-            # Navigate to job search
-            if not self.navigate_to_job_search():
+            else:
+                log.error(f"Unsupported job_site_type: {job_site_type}")
                 return []
             
-            # Attempt login (optional)
-            if self.config.get('job_site_username'):
-                login_success = self.login()
-                if login_success:
-                    logging.info("Login successful")
-                else:
-                    logging.warning("Login failed, continuing without login")
-            
-            # Search for jobs
-            if not self.search_jobs():
-                logging.warning("Job search failed, trying to extract from current page")
-            
-            # Extract job listings
-            jobs = self.extract_job_listings()
-            
+            log.info(f"Job search session completed for {job_site_type}. Found {len(jobs)} jobs.")
             return jobs
             
         except Exception as e:
-            logging.error(f"Job search session failed: {e}")
+            log.error(f"Job search session failed for {job_site_type}: {e}")
             return []
-            
         finally:
-            self.close_session() 
+            self.close_session()
+
+    # --- Indeed Specific Methods ---
+
+    def navigate_to_indeed_job_search(self, keywords: list, location: str) -> bool:
+        """Constructs and navigates to the Indeed job search URL."""
+        indeed_cfg = self.config.get('indeed_config')
+        if not indeed_cfg:
+            log.error("Indeed configuration ('indeed_config') not found in profile.")
+            return False
+
+        base_url = indeed_cfg.get('base_url', "https://uk.indeed.com")
+        search_path = indeed_cfg.get('search_path', "/jobs")
+
+        # Encode keywords and location for URL
+        query_keywords = quote_plus(" ".join(keywords))
+        query_location = quote_plus(location)
+
+        search_url = f"{base_url.rstrip('/')}{search_path}?q={query_keywords}&l={query_location}"
+
+        log.info(f"Navigating to Indeed job search: {search_url}")
+        try:
+            self.page.goto(search_url, wait_until="domcontentloaded", timeout=10000)
+            
+            # Handle Indeed cookie popup (example)
+            try:
+                cookie_button = self.page.locator("#onetrust-accept-btn-handler") # Common Indeed cookie button
+                if cookie_button.is_visible(timeout=5000): # Check visibility with a timeout
+                    cookie_button.click(timeout=3000) # Click with a timeout
+                    log.info("Accepted Indeed cookies.")
+                    self.page.wait_for_timeout(1000) # Wait for action to complete
+            except Exception as e:
+                log.warning(f"Indeed cookie handling failed or not needed: {e}")
+
+            # You might want to add a check here to ensure the page loaded correctly,
+            # e.g., by looking for a known element on the search results page.
+            # For PoC, we assume navigation is successful if no immediate error.
+            
+            return True
+        except Exception as e:
+            log.error(f"Failed to navigate to Indeed URL {search_url}: {e}")
+            return False
+
+    def extract_indeed_job_listings(self) -> list:
+        """Extracts job listings from Indeed search results page."""
+        indeed_cfg = self.config.get('indeed_config')
+        if not indeed_cfg:
+            log.error("Indeed configuration ('indeed_config') not found for extraction.")
+            return []
+
+        selectors = indeed_cfg.get('selectors')
+        if not selectors:
+            log.error("Indeed selectors not found in 'indeed_config'.")
+            return []
+
+        job_card_selector = selectors.get('job_card')
+        if not job_card_selector:
+            log.error("Indeed 'job_card' selector not found in config.")
+            return []
+
+        base_url = indeed_cfg.get('base_url', "https://uk.indeed.com")
+
+        jobs = []
+        try:
+            log.info(f"Waiting for Indeed job cards with selector: {job_card_selector}")
+            self.page.wait_for_selector(job_card_selector, timeout=10000) # Wait for the first card
+
+            log.info("Extracting Indeed job listings...")
+            job_elements = self.page.locator(job_card_selector).all() # Get all job cards
+            log.info(f"Found {len(job_elements)} potential Indeed job cards.")
+
+            for element in job_elements:
+                try:
+                    title = ""
+                    title_elem = element.locator(selectors['title']).first # Use .first to avoid error if multiple, take one
+                    if title_elem.is_visible(timeout=500): # Quick check
+                       title = title_elem.text_content(timeout=500) or ""
+
+                    company = ""
+                    company_elem = element.locator(selectors['company']).first
+                    if company_elem.is_visible(timeout=500):
+                        company = company_elem.text_content(timeout=500) or ""
+
+                    location = ""
+                    location_elem = element.locator(selectors['location']).first
+                    if location_elem.is_visible(timeout=500):
+                        location = location_elem.text_content(timeout=500) or ""
+
+                    link = ""
+                    link_elem = element.locator(selectors['link']).first # Link often same as title
+                    if link_elem:
+                        href = link_elem.get_attribute('href', timeout=500)
+                        if href:
+                            link = urljoin(base_url, href) # Ensure absolute URL
+
+                    description_snippet = ""
+                    desc_selector = selectors.get('description_snippet')
+                    if desc_selector:
+                        desc_elem = element.locator(desc_selector).first
+                        if desc_elem.is_visible(timeout=500):
+                             description_snippet = desc_elem.text_content(timeout=500) or ""
+
+                    if title and company: # Consider a job valid if it has at least title and company
+                        job_data = {
+                            'title': title.strip(),
+                            'company': company.strip(),
+                            'location': location.strip(),
+                            'link': link.strip(),
+                            'description': description_snippet.strip(), # Using 'description' for consistency
+                            'source': 'Indeed'
+                        }
+                        jobs.append(job_data)
+                        log.debug(f"Extracted Indeed job: {title} at {company}")
+                    else:
+                        log.warning("Skipping an Indeed job card, title or company missing.")
+
+                except Exception as e_card:
+                    log.warning(f"Error extracting details from an Indeed job card: {e_card}")
+                    continue
+
+            log.info(f"Extracted {len(jobs)} Indeed job listings.")
+            return jobs
+            
+        except Exception as e:
+            log.error(f"Failed to extract Indeed job listings: {e}")
+            return []
+
+    # --- Modified Main Session Runner ---
