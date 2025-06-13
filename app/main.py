@@ -53,7 +53,14 @@ def filter_jobs(jobs: List[Dict[str, str]], keywords_config: Dict, filters_confi
         
     return filtered_jobs
 
-def run_bot(profile_name: str, profile_config: Dict, master_password: str, stop_event: threading.Event, status_queue: queue.Queue):
+def run_bot(
+    profile_name: str,
+    profile_config: Dict,
+    master_password: str,
+    stop_event: threading.Event,
+    status_queue: queue.Queue,
+    log_queue: queue.Queue | None = None,
+):
     """
     Main function to run the Sentinel Bot for a specific profile.
     This function is stateless and receives all config as arguments.
