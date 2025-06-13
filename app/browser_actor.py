@@ -51,11 +51,7 @@ class BrowserActor:
 
         if not cookie_selectors:
             log.debug(f"No 'cookie_modal_selectors' defined for site_type '{job_site_type}'.")
-            # Special fallback for Amazon if old handle_cookies is still around and no selectors are configured
-            if job_site_type == 'amazon' and hasattr(self, 'handle_cookies') and callable(getattr(self, 'handle_cookies')):
-                 log.info("No specific cookie selectors for Amazon, attempting old handle_cookies().")
-                 return self.handle_cookies() # Call existing method
-            return False
+            return False # No selectors, no action
 
         for selector in cookie_selectors:
             try:
@@ -101,59 +97,18 @@ class BrowserActor:
             log.error(f"Failed to start browser session: {e}")
             return False
 
-    def handle_popups(self) -> bool:
-        """Handle popups and modals on Amazon Jobs UK."""
+    def handle_popups(self) -> bool: # Consider renaming to _dismiss_amazon_modals_with_escape
         try:
-            log.info("Handling popups and modals...")
-            
-            # Wait a moment for page to load
-            self.page.wait_for_timeout(3000)
-            
-            # Step 1: Dismiss job alerts modal with Escape key (this works reliably)
-            log.info("Dismissing job alerts modal...")
+            log.info("Attempting to dismiss Amazon-specific modals with Escape key...")
+            # Wait a moment for page to load, if necessary before Escape
+            # self.page.wait_for_timeout(1000) # Optional short wait
             self.page.keyboard.press('Escape')
-            self.page.wait_for_timeout(2000)
-            
-            # Step 2: Handle cookies (check multiple times as they may appear on different pages)
-            self.handle_cookies()
-            
-            # Note: Location dialog is prevented by browser context settings
-            log.info("Popup handling completed")
-            return True
-            
+            self.page.wait_for_timeout(1000) # Wait for potential modal to close
+            log.info("Escape key pressed for potential Amazon modals.")
+            return True # Assume success, as it's a blind key press
         except Exception as e:
-            log.error(f"Failed to handle popups: {e}")
+            log.error(f"Failed to press Escape key for Amazon popups: {e}", exc_info=True)
             return False
-    
-    def handle_cookies(self):
-        """Handle cookie consent dialogs."""
-        try:
-            cookie_selectors = [
-                "button:has-text('Accept all')",
-                "button:has-text('Accept All')",
-                "button:has-text('Accept cookies')",
-                "button:has-text('Accept Cookies')",
-                "#onetrust-accept-btn-handler",
-                "[data-test='accept-cookies']",
-                ".cookie-accept",
-                "button[id*='accept']"
-            ]
-            
-            for selector in cookie_selectors:
-                try:
-                    element = self.page.query_selector(selector)
-                    if element and element.is_visible():
-                        log.info(f"Accepting cookies with: {selector}")
-                        element.click()
-                        self.page.wait_for_timeout(1000) # Changed from time.sleep(2)
-                        return True
-                except:
-                    continue
-                    
-        except Exception as e:
-            log.warning(f"Cookie handling failed: {e}")
-            
-        return False
 
     # def handle_cookies(self): # Commented out - Replaced by _handle_cookie_modal_generic and dispatcher
     #     """Handle cookie consent dialogs."""
@@ -198,8 +153,8 @@ class BrowserActor:
             self.page.goto(job_site_url, wait_until="domcontentloaded", timeout=10000)
             
             # Handle popups first (Amazon specific)
-            if not self.handle_popups():
-                log.warning("Amazon popup handling had issues, continuing...")
+            if not self.handle_popups(): # This now only presses Escape
+                log.warning("Amazon modal dismissal (Escape key) had issues or failed, continuing...")
             
             # Navigate to actual job search page
             target_url = job_site_url.rstrip('/') + '/app#/jobSearch'
@@ -216,12 +171,11 @@ class BrowserActor:
             else:
                  log.info(f"Successfully landed on Amazon job search. Page type: {page_type}. URL: {self.page.url}")
 
-            log.info("Checking for cookies on Amazon job search page...")
-            self.handle_cookies()
+            # NO explicit self.handle_cookies() call here anymore.
             
             log.info("Dismissing potential job alerts modal on Amazon job search page (second pass)...")
             self.page.keyboard.press('Escape')
-            self.page.wait_for_timeout(1000) # Shortened wait
+            self.page.wait_for_timeout(2000) # Adjusted wait as per plan
             
             return True
             
@@ -234,8 +188,8 @@ class BrowserActor:
         try:
             log.info("Starting multi-step Amazon login process...")
             
-            # Step 0: First handle any blocking dialogs
-            self.handle_cookies()
+            # Step 0: First handle any blocking dialogs - Cookie handling is now done by dispatcher at start of run_job_search_session
+            # self.handle_cookies() # This call is removed as it's handled by the dispatcher.
             
             # Dismiss job alerts modal that might be blocking
             log.info("Dismissing any job alerts modal before login...")
@@ -709,20 +663,21 @@ class BrowserActor:
             ]
             
             email_filled = False
+            job_site_username = self.config.get('job_site_username')
+            if not job_site_username:
+                log.error("job_site_username not found in config for email entry")
+                return False
+
             for selector in email_selectors:
                 try:
-                    email_field = self.page.query_selector(selector)
-                    if email_field and email_field.is_visible():
-                        job_site_username = self.config.get('job_site_username')
-                        if not job_site_username:
-                            log.error("job_site_username not found in config for email entry")
-                            return False
-                        email_field.fill(job_site_username)
+                    locator = self.page.locator(selector).first
+                    if locator.is_visible(timeout=1000): # Short timeout for check
+                        locator.fill(job_site_username)
                         log.info(f"Email filled with {selector}: {job_site_username}")
                         email_filled = True
                         break
-                except Exception as e:
-                    log.warning(f"Failed to fill email with {selector}: {e}")
+                except Exception: # TimeoutError if not visible/found or other Playwright errors
+                    log.debug(f"Email field selector {selector} not found or action failed.")
                     continue
             
             if not email_filled:
@@ -746,15 +701,15 @@ class BrowserActor:
             next_clicked = False
             for selector in next_selectors:
                 try:
-                    button = self.page.query_selector(selector)
-                    if button and button.is_visible():
-                        button.click()
-                        self.page.wait_for_load_state('domcontentloaded', timeout=7000) # Changed from time.sleep(5)
+                    locator = self.page.locator(selector).first
+                    if locator.is_visible(timeout=1000) and locator.is_enabled(timeout=1000):
+                        locator.click(timeout=3000)
+                        self.page.wait_for_load_state('domcontentloaded', timeout=7000)
                         log.info(f"Clicked next button with selector: {selector}")
                         next_clicked = True
                         break
-                except Exception as e:
-                    log.warning(f"Failed to click next with {selector}: {e}")
+                except Exception: # TimeoutError if not visible/found or other Playwright errors
+                    log.debug(f"Next button selector {selector} not found or action failed.")
                     continue
             
             if not next_clicked:
@@ -796,33 +751,41 @@ class BrowserActor:
                 'input:not([type])'
             ]
             
-            pin_field = None
+            pin_field_locator = None
+            pin_field_filled = False
             for selector in pin_selectors:
                 try:
-                    field = self.page.query_selector(selector)
-                    if field and field.is_visible():
+                    locator = self.page.locator(selector).first
+                    if locator.is_visible(timeout=1000): # Short timeout for check
                         # Double-check this is actually a PIN field by checking the page context
-                        page_text = self.page.inner_text('body').lower()
-                        if 'pin' in page_text or 'personal' in page_text:
-                            pin_field = field
+                        page_text = self.page.locator('body').text_content(timeout=1000).lower()
+                        if 'pin' in page_text or 'personal' in page_text or 'password' in page_text: # Added password as PIN often reuses password fields
+                            pin_field_locator = locator
                             log.info(f"Found PIN field with selector: {selector}")
                             break
-                except:
+                except Exception: # TimeoutError if not visible/found or other Playwright errors
+                    log.debug(f"PIN field selector {selector} not found or action failed.")
                     continue
             
-            if not pin_field:
+            if not pin_field_locator:
                 log.error("No PIN field found")
                 return False
             
-            # Use the password as PIN (assuming it's the same)
-            pin_field.fill(password)
-            log.info("PIN filled successfully")
-            
+            try:
+                pin_field_locator.fill(password)
+                log.info("PIN filled successfully")
+                pin_field_filled = True
+            except Exception as e:
+                log.error(f"Failed to fill PIN: {e}")
+                return False
+
             # Click next button
             next_selectors = [
                 'button:has-text("Next")',
                 'button:has-text("NEXT")',
                 'button:has-text("Continue")',
+                'button:has-text("Sign In")', # Common on PIN/Password pages
+                'button:has-text("SIGN IN")',
                 'input[type="submit"]',
                 'button[type="submit"]'
             ]
@@ -830,14 +793,15 @@ class BrowserActor:
             next_clicked = False
             for selector in next_selectors:
                 try:
-                    button = self.page.query_selector(selector)
-                    if button and button.is_visible() and not button.is_disabled():
-                        button.click()
-                        self.page.wait_for_load_state('domcontentloaded', timeout=7000) # Changed from time.sleep(5)
+                    locator = self.page.locator(selector).first
+                    if locator.is_visible(timeout=1000) and locator.is_enabled(timeout=1000):
+                        locator.click(timeout=3000)
+                        self.page.wait_for_load_state('domcontentloaded', timeout=7000)
                         log.info(f"Clicked next button after PIN entry: {selector}")
                         next_clicked = True
                         break
-                except Exception as e:
+                except Exception: # TimeoutError if not visible/found or other Playwright errors
+                    log.debug(f"Next button (after PIN) selector {selector} not found or action failed.")
                     continue
             
             if not next_clicked:
@@ -884,22 +848,23 @@ class BrowserActor:
             email_selected = False
             for selector in email_option_selectors:
                 try:
-                    element = self.page.query_selector(selector)
-                    if element and element.is_visible():
-                        # Check if it's already selected
+                    locator = self.page.locator(selector).first
+                    if locator.is_visible(timeout=1000):
                         if selector.startswith('input[type="radio"]'):
-                            if not element.is_checked():
-                                element.click()
-                                log.info(f"Selected email verification option: {selector}")
-                                email_selected = True
-                                self.page.wait_for_timeout(2000) # Changed from time.sleep(2)
-                        else:
-                            element.click()
-                            log.info(f"Selected email verification option: {selector}")
-                            email_selected = True
-                            self.page.wait_for_timeout(2000) # Changed from time.sleep(2)
+                            if not locator.is_checked():
+                                locator.check(timeout=2000) # Use .check() for radio buttons
+                                log.info(f"Selected email verification option (radio): {selector}")
+                            else:
+                                log.info(f"Email verification option (radio) already selected: {selector}")
+                        else: # For button or other clickable elements
+                            locator.click(timeout=2000)
+                            log.info(f"Clicked email verification option (button/link): {selector}")
+
+                        email_selected = True
+                        self.page.wait_for_timeout(1000) # Short wait for action to complete
                         break
-                except:
+                except Exception: # TimeoutError or other
+                    log.debug(f"Email option selector {selector} not found or action failed.")
                     continue
             
             # Click send verification code button
@@ -914,14 +879,15 @@ class BrowserActor:
             send_clicked = False
             for selector in send_selectors:
                 try:
-                    button = self.page.query_selector(selector)
-                    if button and button.is_visible() and not button.is_disabled():
-                        button.click()
-                        self.page.wait_for_load_state('domcontentloaded', timeout=7000) # Changed from time.sleep(5)
+                    locator = self.page.locator(selector).first
+                    if locator.is_visible(timeout=1000) and locator.is_enabled(timeout=1000):
+                        locator.click(timeout=3000)
+                        self.page.wait_for_load_state('domcontentloaded', timeout=7000)
                         log.info(f"Clicked send verification code: {selector}")
                         send_clicked = True
                         break
-                except Exception as e:
+                except Exception: # TimeoutError or other
+                    log.debug(f"Send code button selector {selector} not found or action failed.")
                     continue
             
             if not send_clicked:
@@ -962,18 +928,19 @@ class BrowserActor:
                 'input:not([type])'
             ]
             
-            code_field = None
+            code_field_locator = None
             for selector in code_selectors:
                 try:
-                    field = self.page.query_selector(selector)
-                    if field and field.is_visible():
-                        code_field = field
+                    locator = self.page.locator(selector).first
+                    if locator.is_visible(timeout=1000): # Short timeout for check
+                        code_field_locator = locator
                         log.info(f"Found 2FA code field with selector: {selector}")
                         break
-                except:
+                except Exception: # TimeoutError or other
+                    log.debug(f"2FA code field selector {selector} not found or action failed.")
                     continue
             
-            if not code_field:
+            if not code_field_locator:
                 log.error("No 2FA code field found")
                 return False
             
@@ -981,15 +948,55 @@ class BrowserActor:
             email_config = self.config.get('email_automation', {})
             if email_config.get('enabled'):
                 log.info("Attempting automatic 2FA code retrieval...")
-                verification_code = self.get_2fa_code_from_email()
+                verification_code = self.get_2fa_code_from_email() # Assuming this might call authenticator.py
                 
                 if verification_code:
-                    # Fill the verification code automatically
-                    code_field.fill(verification_code)
-                    log.info(f"Automatically filled 2FA code: {verification_code}")
-                    
-                    # Click next button
-                    self.click_next_button()
+                    try:
+                        code_field_locator.fill(verification_code)
+                        log.info(f"Automatically filled 2FA code: {verification_code}")
+                        # Click next button
+                        if self.click_next_button(): # Ensure click_next_button also adapted if it uses query_selector
+                            return True
+                        else:
+                            log.warning("Failed to click next after auto 2FA code fill. Falling back to manual.")
+                    except Exception as e_fill:
+                        log.error(f"Error filling 2FA code automatically: {e_fill}. Falling back to manual.")
+                else:
+                    log.warning("Automatic 2FA code retrieval failed, falling back to manual entry")
+
+            # Manual intervention required
+            log.info("⚠️  MANUAL INTERVENTION REQUIRED: 2FA Code Entry") # Fallback if auto fails or not enabled
+            log.info("📧 Please check your email for the verification code")
+            log.info("⏳ You have 120 seconds to:")
+            log.info("   1. Check your email for the Amazon verification code")
+            log.info("   2. Enter the code in the browser window")
+            log.info("   3. Click Next")
+
+            # Wait for manual intervention
+            time.sleep(120) # Kept as per plan
+
+            # Check if the code was entered and we moved to next step
+            current_url = self.page.url
+            if 'verification' not in current_url.lower() and 'code' not in current_url.lower():
+                log.info("2FA code appears to have been successfully entered manually!")
+                return True
+
+            # Try to help with next button if still on verification page
+            # This path is for after manual intervention, so user might have already clicked.
+            # If not, this provides a final attempt.
+            log.info("Attempting to click 'Next' after manual 2FA period if still on verification page.")
+            if self.click_next_button():
+                 # Check URL again
+                current_url_after_click = self.page.url
+                if 'verification' not in current_url_after_click.lower() and 'code' not in current_url_after_click.lower():
+                    log.info("Successfully navigated away from 2FA page after clicking Next.")
+                    return True
+                else:
+                    log.warning("Clicked 'Next' but still on a verification-like page.")
+            else:
+                log.warning("Could not click 'Next' button after manual 2FA period or it was not found.")
+
+            log.info("2FA code entry step completed (manual or fallback path).")
                     return True
                 else:
                     log.warning("Automatic 2FA code retrieval failed, falling back to manual entry")
@@ -1033,15 +1040,17 @@ class BrowserActor:
         
         for selector in next_selectors:
             try:
-                button = self.page.query_selector(selector)
-                if button and button.is_visible() and not button.is_disabled():
-                    button.click()
-                    self.page.wait_for_load_state('domcontentloaded', timeout=7000) # Changed from time.sleep(5)
+                locator = self.page.locator(selector).first
+                if locator.is_visible(timeout=1000) and locator.is_enabled(timeout=1000): # Short timeouts for check
+                    locator.click(timeout=3000) # Timeout for the click action itself
+                    self.page.wait_for_load_state('domcontentloaded', timeout=7000)
                     log.info(f"Clicked next button: {selector}")
                     return True
-            except:
+            except Exception: # TimeoutError if not visible/found or other Playwright errors
+                log.debug(f"Next button selector {selector} not found or action failed in click_next_button.")
                 continue
         
+        log.warning("click_next_button: No 'next' button found or all attempts failed.")
         return False
 
     def handle_captcha(self) -> bool:
@@ -1090,7 +1099,9 @@ class BrowserActor:
                 return "Image Selection Captcha (e.g., 'Select all beds')"
             elif 'enter the characters' in page_text:
                 return "Text-based Captcha"
-            elif 'recaptcha' in page_text or self.page.query_selector('.g-recaptcha'):
+            elif 'recaptcha' in page_text or self.page.locator('.g-recaptcha').count() > 0: # Check count for locator
+                # Could also use is_visible with a short timeout if the element might be slow to appear
+                # if 'recaptcha' in page_text or self.page.locator('.g-recaptcha').is_visible(timeout=500):
                 return "Google reCAPTCHA"
             elif 'prove you are human' in page_text:
                 return "Human Verification Challenge"
@@ -1327,15 +1338,13 @@ class BrowserActor:
             log.error(f"Error extracting code from page: {e}")
             return None
 
-    def search_jobs(self) -> bool:
-        """Search for jobs based on profile criteria."""
+    def search_jobs(self, current_location_to_search: str = None) -> bool:
+        """Search for jobs based on profile criteria, optionally for a specific location."""
         try:
-            log.info("Searching for jobs...")
+            log.info(f"Searching Amazon jobs. Specified location: '{current_location_to_search if current_location_to_search else 'None (generic search)'}'")
             
-            # Wait for page to load
-            self.page.wait_for_load_state('domcontentloaded', timeout=5000) # Changed from time.sleep(3)
+            self.page.wait_for_load_state('domcontentloaded', timeout=5000)
             
-            # Look for search inputs
             search_selectors = [
                 'input[placeholder*="Search"]',
                 'input[placeholder*="job"]',
@@ -1343,38 +1352,68 @@ class BrowserActor:
                 '#search-jobs'
             ]
             
-            # Fill in search keywords
-            keywords = ' '.join(self.config.get('keywords', {}).get('required', []))
-            if keywords:
+            keywords_config = self.config.get('keywords', {})
+            required_keywords = keywords_config.get('required', [])
+            optional_keywords = keywords_config.get('optional', [])
+            keywords_to_search = " ".join(required_keywords + optional_keywords)
+
+            if keywords_to_search:
+                keyword_filled = False
                 for selector in search_selectors:
                     try:
-                        search_field = self.page.query_selector(selector)
-                        if search_field and search_field.is_visible():
-                            search_field.fill(keywords)
-                            log.info(f"Filled search with keywords: {keywords}")
+                        search_field = self.page.locator(selector).first
+                        if search_field.is_visible(timeout=1000):
+                            search_field.fill(keywords_to_search)
+                            log.info(f"Filled search keywords: '{keywords_to_search}' using selector: {selector}")
+                            keyword_filled = True
                             break
-                    except:
+                    except Exception as e:
+                        log.debug(f"Keyword search field selector {selector} failed or not visible: {e}")
                         continue
-            
-            # Look for location input
+                if not keyword_filled:
+                    log.warning("Could not fill keywords for Amazon search.")
+            else:
+                log.info("No keywords specified for Amazon search.")
+
             location_selectors = [
                 'input[placeholder*="location"]',
                 'input[placeholder*="postcode"]', 
-                'input[placeholder*="city"]'
+                'input[placeholder*="city"]',
+                'input[aria-label*="location"]' # Added for robustness
             ]
             
-            # Fill in location
-            locations = self.config.get('locations', [])
-            if locations:
-                location = locations[0]  # Use first location
+            location_field_found_and_filled = False
+            if current_location_to_search:
+                log.info(f"Attempting to fill location: '{current_location_to_search}'")
                 for selector in location_selectors:
                     try:
-                        location_field = self.page.query_selector(selector)
-                        if location_field and location_field.is_visible():
-                            location_field.fill(location)
-                            log.info(f"Filled location: {location}")
+                        location_field = self.page.locator(selector).first
+                        if location_field.is_visible(timeout=1000):
+                            location_field.fill(current_location_to_search)
+                            log.info(f"Filled location '{current_location_to_search}' using selector: {selector}")
+                            location_field_found_and_filled = True
                             break
-                    except:
+                    except Exception as e:
+                        log.debug(f"Location field selector {selector} failed or not visible: {e}")
+                        continue
+                if not location_field_found_and_filled:
+                    log.warning(f"Could not find or fill location field for '{current_location_to_search}' on Amazon.")
+            else:
+                log.info("No specific location provided for Amazon search (generic search). Clearing existing location if any.")
+                # Attempt to clear location field for a truly generic search if no location is passed
+                for selector in location_selectors:
+                    try:
+                        location_field = self.page.locator(selector).first
+                        if location_field.is_visible(timeout=500): # Shorter timeout for clearing
+                            current_val = location_field.input_value()
+                            if current_val: # Only clear if it has a value
+                                log.debug(f"Clearing existing location value '{current_val}' from field {selector}")
+                                location_field.fill("") # Clear the field
+                                location_field_found_and_filled = True # Mark as handled
+                            break
+                    except Exception:
+                        # If it fails, it might not be there, which is fine for clearing.
+                        log.debug(f"No pre-existing location found or error clearing field {selector}, continuing generic search.")
                         continue
             
             # Submit search
@@ -1482,34 +1521,28 @@ class BrowserActor:
             log.error(f"Error closing browser session: {e}")
 
     def run_job_search_session(self) -> list:
-        """Run a complete job search session, dispatching to site-specific methods."""
-        job_site_type = self.config.get('job_site_type', 'amazon') # Default to amazon if not specified
-        jobs = []
-
+        """Run a complete job search session, handling multiple locations and site types."""
+        all_scraped_jobs = []
         try:
             if not self.start_session():
                 return []
 
-            # --- Start of new dispatcher block ---
+            # Initial dispatcher logic for modals (should remain right after self.start_session())
             if self.page:
                 try:
                     log.info("Running initial page type dispatch for common modals...")
-                    # Allow up to 2 attempts to handle modals that might overlay each other or refresh the page
-                    for attempt in range(2):
+                    for attempt in range(2): # Allow up to 2 attempts
                         current_page_type = self.identify_page_type()
                         log.info(f"Dispatcher (attempt {attempt+1}): Identified page type: {current_page_type}")
-
                         if current_page_type in self.page_type_handlers:
                             handler = self.page_type_handlers[current_page_type]
                             log.info(f"Dispatcher: Found handler for {current_page_type}, executing...")
                             action_taken = handler()
-
                             if action_taken:
-                                log.info(f"Dispatcher: Handler for {current_page_type} took action. Re-evaluating page if another attempt is left.")
-                                if attempt == 1:
+                                log.info(f"Dispatcher: Handler for {current_page_type} took action. Re-evaluating.")
+                                if attempt == 1: # Last attempt
                                     current_page_type = self.identify_page_type()
                                     log.info(f"Dispatcher: Final page type after handling modal on last attempt: {current_page_type}")
-                                # Loop will continue and re-identify if attempt < 1
                             else:
                                 log.info(f"Dispatcher: Handler for {current_page_type} reported no action. Proceeding.")
                                 break
@@ -1521,63 +1554,79 @@ class BrowserActor:
                     log.error(f"Error during initial page type dispatch: {e_dispatch}", exc_info=True)
             else:
                 log.error("Page object not available for initial dispatch in run_job_search_session. Critical failure.")
-                return [] # Cannot proceed without a page
-            # --- End of new dispatcher block ---
+                return []
 
-            if job_site_type == 'indeed':
-                log.info("Running Indeed job search session.")
-                # Get keywords and location for Indeed
-                # Ensure keywords is a list of strings
-                keywords_config = self.config.get('keywords', {})
-                required_keywords = keywords_config.get('required', [])
-                optional_keywords = keywords_config.get('optional', [])
-                combined_keywords = required_keywords + optional_keywords
+            job_site_type = self.config.get('job_site_type', 'amazon')
+            cities = self.config.get("filters", {}).get("cities", [])
+            keywords_config = self.config.get('keywords', {})
+            combined_keywords = keywords_config.get('required', []) + keywords_config.get('optional', [])
 
-                # Ensure location is a string
-                filters_config = self.config.get('filters', {})
-                cities = filters_config.get('cities', [])
-                location_str = cities[0] if cities else self.config.get('default_location', "") # Fallback if needed
-
-                if not combined_keywords or not location_str:
-                    log.error("Keywords or location missing for Indeed search in profile config.")
-                    if not combined_keywords:
-                        log.error(f"Combined keywords list is empty. Required: {required_keywords}, Optional: {optional_keywords}")
-                    if not location_str:
-                        log.error(f"Location string is empty. Cities: {cities}, Default location: {self.config.get('default_location', '')}")
-                    return []
-
-                if not self.navigate_to_indeed_job_search(combined_keywords, location_str):
-                    log.error("Failed to navigate to Indeed job search page.")
-                    return []
-
-                jobs = self.extract_indeed_job_listings()
-
-            elif job_site_type == 'amazon': # Existing Amazon logic
+            if job_site_type == 'amazon':
                 log.info("Running Amazon job search session.")
-                if not self.navigate_to_job_search(): # Amazon specific navigation
+                if not self.navigate_to_job_search(): # Navigates to the base Amazon search page
+                    log.error("Critical failure: Could not navigate to Amazon job search page.")
                     return []
 
-                if self.config.get('job_site_username'): # Amazon specific login
+                if self.config.get('job_site_username'): # Amazon specific login, done once
                     login_success = self.login()
                     if login_success:
                         log.info("Amazon login successful.")
                     else:
                         log.warning("Amazon login failed, continuing without login.")
 
-                if not self.search_jobs(): # Amazon specific search
-                    log.warning("Amazon job search failed, trying to extract from current page.")
+                if cities: # If specific cities are configured
+                    for city_to_search in cities:
+                        log.info(f"Searching Amazon jobs in: {city_to_search}")
+                        if not self.search_jobs(current_location_to_search=city_to_search):
+                            log.warning(f"Amazon job search failed for location: {city_to_search}. Trying to extract if any results loaded.")
+                        # Attempt extraction even if search_jobs returned False, as page might still have results
+                        jobs_from_city = self.extract_job_listings()
+                        log.info(f"Found {len(jobs_from_city)} jobs on Amazon for location '{city_to_search}'.")
+                        all_scraped_jobs.extend(jobs_from_city)
+                else: # Generic Amazon search (no specific cities)
+                    log.info("Performing generic Amazon job search (no specific cities in config).")
+                    if not self.search_jobs(current_location_to_search=None): # Pass None for generic
+                        log.warning("Generic Amazon job search failed. Trying to extract if any results loaded.")
+                    jobs_from_generic_search = self.extract_job_listings()
+                    log.info(f"Found {len(jobs_from_generic_search)} jobs on Amazon from generic search.")
+                    all_scraped_jobs.extend(jobs_from_generic_search)
 
-                jobs = self.extract_job_listings() # Amazon specific extraction (assuming this is the generic one for now)
+            elif job_site_type == 'indeed':
+                log.info("Running Indeed job search session.")
+                if not combined_keywords and not cities : # Indeed needs keywords or a location to search effectively
+                     default_location_indeed = self.config.get('default_location', "")
+                     if not default_location_indeed:
+                        log.error("Indeed search requires keywords, or cities, or a default_location if cities list is empty. None provided.")
+                        return []
+
+                if cities: # If specific cities are configured
+                    for city_to_search in cities:
+                        log.info(f"Searching Indeed jobs for keywords '{' '.join(combined_keywords)}' in: {city_to_search}")
+                        if not self.navigate_to_indeed_job_search(combined_keywords, city_to_search):
+                            log.error(f"Failed to navigate to Indeed job search for location: {city_to_search}. Skipping this location.")
+                            continue
+                        jobs_from_city = self.extract_indeed_job_listings()
+                        log.info(f"Found {len(jobs_from_city)} jobs on Indeed for '{' '.join(combined_keywords)}' in '{city_to_search}'.")
+                        all_scraped_jobs.extend(jobs_from_city)
+                else: # Generic Indeed search (no specific cities, use default_location if available)
+                    default_location_indeed = self.config.get('default_location', "")
+                    log.info(f"Performing generic Indeed job search (no specific cities in config) for keywords '{' '.join(combined_keywords)}' and default location '{default_location_indeed}'.")
+                    if not self.navigate_to_indeed_job_search(combined_keywords, default_location_indeed):
+                        log.error(f"Failed to navigate to Indeed job search for default location: {default_location_indeed}.")
+                        return [] # If base navigation fails for generic, probably stop
+                    jobs_from_generic_search = self.extract_indeed_job_listings()
+                    log.info(f"Found {len(jobs_from_generic_search)} jobs on Indeed from generic search (default location: '{default_location_indeed}').")
+                    all_scraped_jobs.extend(jobs_from_generic_search)
             
             else:
                 log.error(f"Unsupported job_site_type: {job_site_type}")
                 return []
             
-            log.info(f"Job search session completed for {job_site_type}. Found {len(jobs)} jobs.")
-            return jobs
+            log.info(f"Job search session completed for {job_site_type}. Found {len(all_scraped_jobs)} total jobs across all specified locations.")
+            return all_scraped_jobs
             
         except Exception as e:
-            log.error(f"Job search session failed for {job_site_type}: {e}")
+            log.error(f"Overall job search session failed for {job_site_type}: {e}", exc_info=True)
             return []
         finally:
             self.close_session()
@@ -1618,7 +1667,7 @@ class BrowserActor:
                 log.info(f"Page type for Indeed job search is UNKNOWN. URL: {search_url}. Proceeding; consider defining page_signatures.")
             else:
                 log.info(f"Successfully navigated to Indeed search results. Page type: {page_type}")
-            
+
             return True
         except Exception as e:
             log.error(f"Failed to navigate to Indeed URL {search_url}: {e}", exc_info=True)
