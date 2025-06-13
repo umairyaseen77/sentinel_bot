@@ -40,7 +40,7 @@ Extending the bot to support a new job site involves changes in configuration an
         *   `title`: Selector for the job title.
         *   `company`: Selector for the company name.
         *   `location`: Selector for the job location.
-        *   `link`: Selector for the direct link to the job posting.
+        *   `url`: Selector for the direct link to the job posting.
         *   `description_snippet`: (Optional) Selector for a brief job description.
     *   **`cookie_modal_selectors`**: (Optional) A list of CSS selectors for cookie consent buttons if the site has a cookie modal that needs to be handled by the generic `_handle_cookie_modal_generic` method.
     *   **`page_signatures`**: (Highly Recommended) A list of page signature objects. This is essential for the `identify_page_type()` system to correctly recognize different pages on the new site (e.g., search results, login pages, cookie modals). Refer extensively to the [Page Identification System Guide](./configuring_page_identification.md) for how to structure these.
@@ -54,7 +54,7 @@ Extending the bot to support a new job site involves changes in configuration an
         title: "h2.job-title"
         company: "span.company-name"
         location: "span.job-location"
-        link: "a.job-details-link"
+        url: "a.job-details-link"
       cookie_modal_selectors: ["button#accept-cookies-btn"]
       page_signatures:
         - page_type: "COOKIE_MODAL"
@@ -116,10 +116,10 @@ Create the following methods within the `BrowserActor` class:
     *   Use `self.page.wait_for_selector(job_card_selector, timeout=...)` to ensure job cards are present.
     *   Get all job card elements: `job_elements = self.page.locator(job_card_selector).all()`.
     *   Loop through `job_elements`. For each element:
-        *   Extract `title`, `company`, `location`, `link`, and `description` using the configured selectors and Playwright's `element.locator().first.text_content()` or `element.locator().first.get_attribute('href')`.
+        *   Extract `title`, `company`, `location`, the job `url`, and `description` using the configured selectors and Playwright's `element.locator().first.text_content()` or `element.locator().first.get_attribute('href')`.
         *   Use `try-except` blocks for each piece of data to handle cases where a selector might not find an element in a particular card.
-        *   Ensure links are absolute using `urllib.parse.urljoin(base_url, relative_link)`.
-        *   Append a dictionary of the extracted job data to a list. Include `source: '[New Site Name]'`.
+        *   Ensure URLs are absolute using `urllib.parse.urljoin(base_url, relative_link)`.
+        *   Append a dictionary of the extracted job data (`{"url": ..., "title": ..., "company": ...}`) to a list. Include `source: '[New Site Name]'`.
     *   Return the list of job dictionaries.
 
 3.  **Login Methods (If Applicable)**

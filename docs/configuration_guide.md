@@ -115,7 +115,7 @@ Based on the `job_site_type`, you'll need to provide a corresponding site-specif
     *   `title: string` (e.g., `"h3[class*='job-title']"`)
     *   `company: string` (Optional, e.g., `"[class*='company-name']"`; often defaults to "Amazon")
     *   `location: string` (e.g., `"[class*='job-location']"`)
-    *   `link: string` (e.g., `"a[class*='job-link']"`)
+    *   `url: string` (e.g., `"a[class*='job-link']"`)
     *   Example:
         ```yaml
         amazon_config:
@@ -126,7 +126,7 @@ Based on the `job_site_type`, you'll need to provide a corresponding site-specif
             job_card: ".job-tile"
             title: ".job-title"
             location: ".location"
-            link: "a.job-link"
+            url: "a.job-link"
           # cookie_modal_selectors and page_signatures would also go under amazon_config
         ```
 *   **`cookie_modal_selectors`** (list[string], Optional)
@@ -158,7 +158,7 @@ Based on the `job_site_type`, you'll need to provide a corresponding site-specif
     *   `title: string` (e.g., `"h2.jobTitle > a"`)
     *   `company: string` (e.g., `"[data-testid='company-name']"`)
     *   `location: string` (e.g., `"[data-testid='text-location']"`)
-    *   `link: string` (e.g., `"h2.jobTitle > a"`)
+    *   `url: string` (e.g., `"h2.jobTitle > a"`)
     *   `description_snippet: string` (e.g., `".job-snippet"`)
     *   Example:
         ```yaml
@@ -170,7 +170,7 @@ Based on the `job_site_type`, you'll need to provide a corresponding site-specif
             title: "h2.jobTitle > a"
             company: "[data-testid='company-name']"
             location: "[data-testid='text-location']"
-            link: "h2.jobTitle > a"
+            url: "h2.jobTitle > a"
             description_snippet: ".job-snippet"
           # cookie_modal_selectors and page_signatures would also go under indeed_config
         ```
@@ -246,7 +246,7 @@ profiles:
         job_card: ".job-tile"
         title: ".job-title"
         location: ".location"
-        link: "a" # Usually the whole card or title area is a link
+        url: "a" # Usually the whole card or title area is a link
       cookie_modal_selectors:
         - "#sp-cc-accept" # Example Amazon cookie button
       page_signatures:
@@ -294,7 +294,7 @@ profiles:
         title: "h2.jobTitle > a"
         company: "[data-testid='company-name']"
         location: "[data-testid='text-location']"
-        link: "h2.jobTitle > a"
+        url: "h2.jobTitle > a"
         description_snippet: ".job-snippet"
       cookie_modal_selectors:
         - "#onetrust-accept-btn-handler"
