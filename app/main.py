@@ -88,15 +88,20 @@ def run_bot(
             
             # The browser_actor now handles the entire session internally
             scraped_jobs = browser_actor.run_job_search_session()
+
+            # Normalize job entries to use 'url' as the key for links
+            for job in scraped_jobs:
+                if 'url' not in job and job.get('link'):
+                    job['url'] = job.get('link')
             
             status_queue.put({"type": "last_checked", "value": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
             log.info(f"[{profile_name}] Session finished. Scraped {len(scraped_jobs)} total jobs.")
 
-            # Get already seen jobs from the database
-            seen_links = state_manager.get_seen_urls()
-            
-            # Filter out jobs that have already been seen
-            new_jobs = [job for job in scraped_jobs if job.get('link') and job['link'] not in seen_links]
+            # Get already seen job URLs from the database
+            seen_urls = state_manager.get_seen_urls()
+
+            # Filter out jobs that have already been seen using the normalized URL
+            new_jobs = [job for job in scraped_jobs if job.get('url') and job['url'] not in seen_urls]
             
             if not new_jobs:
                 log.info(f"[{profile_name}] No new job listings found.")
@@ -119,7 +124,7 @@ def run_bot(
                 else:
                     log.info(f"[{profile_name}] No new jobs matched the configured filters.")
 
-                # Save all new (unfiltered) job links to the database to prevent re-notifying
+                # Save all new (unfiltered) job URLs to the database to prevent re-notifying
                 state_manager.save_jobs(new_jobs)
 
             # Reset retry count after a successful run
