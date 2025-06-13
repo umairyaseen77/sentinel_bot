@@ -65,8 +65,8 @@ def test_bot():
         
         # Start bot in background thread
         bot_thread = threading.Thread(
-            target=run_bot, 
-            args=(profile_name, profile_config, stop_event, status_queue)
+            target=run_bot,
+            args=(profile_name, profile_config, master_password, stop_event, status_queue)
         )
         bot_thread.daemon = True
         bot_thread.start()

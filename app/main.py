@@ -44,10 +44,10 @@ def filter_jobs(jobs: List[Dict[str, str]], keywords_config: Dict, filters_confi
         
         # Check location filter
         if allowed_cities and not any(city in location_lower for city in allowed_cities):
-            # Allow job if location is empty/not specified, as it could be a remote role
-            if location_lower.strip():
-                log.debug(f"Skipping job '{job['title']}' in '{job.get('location')}' - location not in allowed list: {allowed_cities}")
-                continue
+            log.debug(
+                f"Skipping job '{job['title']}' in '{job.get('location')}' - location not in allowed list: {allowed_cities}"
+            )
+            continue
             
         filtered_jobs.append(job)
         
