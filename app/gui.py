@@ -15,36 +15,45 @@ MASTER_KEY_HASH_PATH = os.path.join('data', 'master.key')
 
 # --- Profile Management ---
 def get_default_profile():
+    # This is a template for new profiles created in the wizard
     return {
-        "job_site_url": "https://www.jobsatamazon.co.uk/",
+        "job_site_type": "amazon", # Default to amazon
+        "job_site_url": "https://www.amazon.jobs",
         "job_site_username": "",
-        "job_site_password": "",  # Will be encrypted as encrypted_job_site_password
-        "email_address": "",
-        "email_app_password": "",  # Will be encrypted as encrypted_email_app_password
+        "encrypted_job_site_password": "",
         "discord_webhook_url": "",
         "check_interval_minutes": 30,
         "headless": True,
         "max_retries": 3,
         "keywords": {
             "required": ["software", "engineer", "developer"],
+            "optional": [],
             "excluded": ["senior", "lead", "manager"]
         },
-        "selectors": {
-            "login_username_field": "input[name='email']",
-            "login_password_field": "input[name='password']",
-            "login_submit_button": "input[type='submit'], button[type='submit']",
-            "jobs_container": ".job-tile, .job-result, [data-automation-id='jobTitle']",
-            "job_title": ".job-title, [data-automation-id='jobTitle'] a, h3 a",
-            "job_location": ".job-location, [data-automation-id='jobLocation']", 
-            "job_link": "a[href*='/jobs/'], a[href*='/job/']",
-            "search_field": "input[placeholder*='job'], input[name='keywords']",
-            "location_field": "input[placeholder*='location'], input[name='location']",
-            "search_button": "button[type='submit'], input[type='submit']"
-        },
         "filters": {
-            "cities": ["London", "Manchester", "Birmingham", "Leeds", "Glasgow"],
-            "min_salary": 0,
-            "max_days_old": 7
+            "cities": ["London", "Manchester", "Remote"],
+        },
+        "email_automation": {
+            "enabled": False,
+            "email_address": "",
+            "encrypted_email_app_password": "",
+            "email_imap_server": "imap.gmail.com",
+            "confirmation_email_sender": "no-reply@amazon.com",
+            "email_check_timeout_seconds": 90,
+            "email_polling_interval_seconds": 5
+        },
+        "amazon_config": {
+             "job_site_url": "https://www.amazon.jobs",
+             "selectors": {},
+             "cookie_modal_selectors": [],
+             "page_signatures": []
+        },
+        "indeed_config": {
+            "base_url": "https://uk.indeed.com",
+            "search_path": "/jobs",
+            "selectors": {},
+            "cookie_modal_selectors": [],
+            "page_signatures": []
         }
     }
 
@@ -82,11 +91,25 @@ class App(ctk.CTk):
         # Withdraw the main window until setup is complete
         self.withdraw()
 
-        if self.setup_data():
-            self.setup_main_window()
-            self.deiconify() # Show the main window
-            self.process_log_queue()
-            self.process_status_queue()
+        try:
+            if self.setup_data():
+                self.setup_main_window()
+                self.deiconify() # Show the main window
+                self.process_log_queue()
+                self.process_status_queue()
+            else:
+                # If setup_data returns False, it means the user cancelled or an error occurred.
+                # The app should close gracefully.
+                self.quit()
+
+        except Exception as e:
+            log.exception("An unhandled error occurred during application startup.")
+            messagebox.showerror(
+                "Fatal Startup Error",
+                f"A critical error occurred and the application must close:\n\n{e}"
+            )
+            self.quit()
+
 
     def setup_data(self):
         # Handle corrupted state first
@@ -97,22 +120,22 @@ class App(ctk.CTk):
         if self.is_first_run():
             success = self.run_first_run_wizard()
             if not success:
-                self.quit()
+                # User likely cancelled the wizard
                 return False
         else:
             success = self.prompt_master_password()
             if not success:
-                self.quit()
+                # User cancelled the password prompt
                 return False
         
         try:
-            # Just load the profiles data, don't update GUI yet
             self.profiles = load_profiles()
+            if not self.profiles:
+                log.warning("Profiles file loaded but is empty. User may need to create a new profile.")
             return True
         except Exception as e:
             log.error(f"Failed to load profiles: {e}")
             messagebox.showerror("Error", f"Failed to load profiles: {e}", parent=self)
-            self.quit()
             return False
 
     def is_first_run(self):
@@ -123,7 +146,7 @@ class App(ctk.CTk):
         if os.path.exists(PROFILES_PATH) and not os.path.exists(MASTER_KEY_HASH_PATH):
             response = messagebox.askyesno(
                 "Reset Required", 
-                "Application state is corrupted. The profiles exist but the master key is missing.\n\nWould you like to reset and start fresh?",
+                "Application state is corrupted. The profiles exist but the master key is missing.\n\nWould you like to reset and start fresh? This will delete existing profiles.",
                 parent=self
             )
             if response:
@@ -242,48 +265,79 @@ class App(ctk.CTk):
 
     def setup_configuration_tab(self):
         self.config_tab = self.tab_view.tab("Configuration")
-        self.config_vars = {} # To hold all the CTkEntry and other widgets
-        
-        # This will be populated dynamically
+        self.config_tab_content = ctk.CTkScrollableFrame(self.config_tab)
+        self.config_tab_content.pack(expand=True, fill="both", padx=5, pady=5)
+        self.config_vars = {} 
         
         save_button = ctk.CTkButton(self.config_tab, text="Save Changes to Profile", command=self.save_current_profile)
-        save_button.pack(side="bottom", pady=20)
+        save_button.pack(side="bottom", pady=10, padx=10)
 
 
     def build_config_widgets(self, parent_frame, config_data):
         # Clear old widgets
         for widget in parent_frame.winfo_children():
-            if not isinstance(widget, ctk.CTkButton): # Don't destroy the save button
-                widget.destroy()
+            widget.destroy()
 
         self.config_vars = {}
-        row = 0
         
-        for key, value in config_data.items():
-            frame = ctk.CTkFrame(parent_frame)
-            frame.pack(fill="x", padx=10, pady=5)
-            
-            label = ctk.CTkLabel(frame, text=f"{key}:", width=25)
-            label.pack(side="left", padx=5)
-            
-            if isinstance(value, dict):
-                # Handle nested dictionaries like selectors or keywords
-                text_content = json.dumps(value, indent=2)
-                entry = ctk.CTkTextbox(frame, height=150, wrap="word")
-                entry.insert("1.0", text_content)
-                self.config_vars[key] = entry
-            elif isinstance(value, bool):
-                entry = ctk.CTkSwitch(frame, text="")
-                entry.select() if value else entry.deselect()
-                self.config_vars[key] = entry
-            else:
-                is_secret = "password" in key.lower()
-                entry = ctk.CTkEntry(frame, show="*" if is_secret else None)
-                entry.insert(0, str(value))
-                self.config_vars[key] = entry
+        # Function to recursively build form
+        def create_widgets(parent, data, prefix=""):
+            for key, value in data.items():
+                current_key = f"{prefix}.{key}" if prefix else key
+                
+                frame = ctk.CTkFrame(parent)
+                frame.pack(fill="x", padx=5, pady=3, anchor="w")
+                
+                label_text = key.replace("_", " ").title()
+                label = ctk.CTkLabel(frame, text=f"{label_text}:", width=200, anchor="w")
+                label.pack(side="left", padx=(5, 10))
+                
+                if isinstance(value, dict):
+                    # For nested dictionaries, just show a label and recurse
+                    nested_frame = ctk.CTkFrame(parent, fg_color="transparent")
+                    nested_frame.pack(fill="x", padx=20, pady=2)
+                    ctk.CTkLabel(nested_frame, text=label_text, font=ctk.CTkFont(weight="bold")).pack(anchor="w")
+                    create_widgets(nested_frame, value, current_key)
+                elif isinstance(value, list):
+                     # Handle lists as comma-separated strings
+                    entry = ctk.CTkEntry(frame)
+                    entry.insert(0, ", ".join(map(str, value)))
+                    entry.pack(side="left", fill="x", expand=True, padx=5)
+                    self.config_vars[current_key] = entry
+                elif isinstance(value, bool):
+                    entry = ctk.CTkSwitch(frame, text="")
+                    if value: entry.select()
+                    else: entry.deselect()
+                    entry.pack(side="left", padx=5)
+                    self.config_vars[current_key] = entry
+                else:
+                    is_secret = "password" in key.lower() and "encrypted" in key.lower()
+                    entry = ctk.CTkEntry(frame, show="*" if is_secret else None)
+                    entry.insert(0, str(value))
+                    entry.pack(side="left", fill="x", expand=True, padx=5)
+                    self.config_vars[current_key] = entry
 
-            entry.pack(side="left", fill="x", expand=True, padx=5)
-            row += 1
+        # Create a deep copy to avoid modifying the original profile data
+        display_config = json.loads(json.dumps(config_data))
+        
+        # Decrypt passwords for display purposes and rename keys
+        if "encrypted_job_site_password" in display_config:
+            try:
+                decrypted = security.decrypt(display_config.get("encrypted_job_site_password", ""), self.master_password)
+                display_config["job_site_password (enter to change)"] = decrypted
+            except:
+                display_config["job_site_password (enter to change)"] = "DECRYPTION FAILED"
+            del display_config["encrypted_job_site_password"]
+
+        if display_config.get("email_automation", {}).get("encrypted_email_app_password"):
+             try:
+                decrypted = security.decrypt(display_config["email_automation"]["encrypted_email_app_password"], self.master_password)
+                display_config["email_automation"]["app_password (enter to change)"] = decrypted
+             except:
+                display_config["email_automation"]["app_password (enter to change)"] = "DECRYPTION FAILED"
+             del display_config["email_automation"]["encrypted_email_app_password"]
+
+        create_widgets(parent_frame, display_config)
 
 
     # --- Profile Logic ---
@@ -300,40 +354,36 @@ class App(ctk.CTk):
             self.on_profile_selected(profile_names[0])
         else:
             self.profile_menu.set(profile_names[0])
-            self.build_config_widgets(self.config_tab, {}) # Clear config tab
+            self.build_config_widgets(self.config_tab_content, {}) # Clear config tab
             self.start_button.configure(state="disabled")
             self.delete_button.configure(state="disabled")
 
     def on_profile_selected(self, profile_name):
-        if profile_name not in self.profiles:
+        if profile_name not in self.profiles or profile_name == "No Profiles Found":
             self.status_label.configure(text="Status: Idle", text_color="gray")
             self.start_button.configure(state="disabled")
             self.stop_button.configure(state="disabled")
+            self.build_config_widgets(self.config_tab_content, {})
             return
 
         self.current_profile_name = profile_name
         self.tab_view.set("Dashboard & Logs")
         
-        # Decrypt sensitive fields for display
-        config = self.profiles[profile_name].copy()
-        config["job_site_password"] = security.decrypt(config.get("encrypted_job_site_password", ""), self.master_password)
-        config["email_app_password"] = security.decrypt(config.get("encrypted_email_app_password", ""), self.master_password)
-        
-        self.build_config_widgets(self.config_tab, config)
+        config = self.profiles[profile_name]
+        self.build_config_widgets(self.config_tab_content, config)
         
         # Update dashboard status
         if profile_name in self.bot_threads and self.bot_threads[profile_name].is_alive():
             self.status_label.configure(text="Status: Running", text_color="green")
             self.start_button.configure(state="disabled")
             self.stop_button.configure(state="normal")
-            self.last_checked_label.configure(text="Last Checked: Never")
-            self.jobs_found_label.configure(text="Jobs Found (Session): 0")
         else:
             self.status_label.configure(text="Status: Idle", text_color="gray")
             self.start_button.configure(state="normal")
             self.stop_button.configure(state="disabled")
-            self.last_checked_label.configure(text="Last Checked: Never")
-            self.jobs_found_label.configure(text="Jobs Found (Session): 0")
+        
+        self.last_checked_label.configure(text="Last Checked: Never")
+        self.jobs_found_label.configure(text="Jobs Found (Session): 0")
 
 
     def new_profile(self):
@@ -359,7 +409,7 @@ class App(ctk.CTk):
             messagebox.showerror("Error", "A profile with that name already exists.")
 
     def delete_profile(self):
-        if not self.current_profile_name: return
+        if not self.current_profile_name or self.current_profile_name == "No Profiles Found": return
 
         if messagebox.askyesno("Confirm Delete", f"Are you sure you want to permanently delete the profile '{self.current_profile_name}'?"):
             del self.profiles[self.current_profile_name]
@@ -368,24 +418,23 @@ class App(ctk.CTk):
 
     def change_master_password_dialog(self):
         current_pw = simpledialog.askstring("Change Master Password", "Enter CURRENT master password:", show='*', parent=self)
-        if current_pw is None:
-            return
+        if current_pw is None: return
+
         try:
             with open(MASTER_KEY_HASH_PATH, 'rb') as f:
                 stored_hash = f.read()
         except Exception as e:
             messagebox.showerror("Error", f"Failed to read master key: {e}")
             return
+            
         if not security.verify_password(stored_hash, current_pw):
             messagebox.showerror("Error", "Current master password is incorrect.")
             return
 
         new_pw = simpledialog.askstring("Change Master Password", "Enter NEW master password:", show='*', parent=self)
-        if not new_pw:
-            return
+        if not new_pw: return
         confirm_pw = simpledialog.askstring("Change Master Password", "Confirm NEW master password:", show='*', parent=self)
-        if confirm_pw is None:
-            return
+        if confirm_pw is None: return
         if new_pw != confirm_pw:
             messagebox.showerror("Error", "New passwords do not match.")
             return
@@ -394,13 +443,15 @@ class App(ctk.CTk):
             return
 
         try:
+            # Re-encrypt all sensitive data in all profiles
             for name, cfg in self.profiles.items():
                 if cfg.get("encrypted_job_site_password"):
-                    plain = security.decrypt(cfg.get("encrypted_job_site_password"), current_pw)
+                    plain = security.decrypt(cfg["encrypted_job_site_password"], current_pw)
                     cfg["encrypted_job_site_password"] = security.encrypt(plain, new_pw)
-                if cfg.get("encrypted_email_app_password"):
-                    plain = security.decrypt(cfg.get("encrypted_email_app_password"), current_pw)
-                    cfg["encrypted_email_app_password"] = security.encrypt(plain, new_pw)
+                
+                if cfg.get("email_automation", {}).get("encrypted_email_app_password"):
+                    plain = security.decrypt(cfg["email_automation"]["encrypted_email_app_password"], current_pw)
+                    cfg["email_automation"]["encrypted_email_app_password"] = security.encrypt(plain, new_pw)
 
             save_profiles(self.profiles)
             with open(MASTER_KEY_HASH_PATH, 'wb') as f:
@@ -413,30 +464,58 @@ class App(ctk.CTk):
     def save_current_profile(self):
         if not self.current_profile_name: return
 
-        config = {}
-        for key, widget in self.config_vars.items():
-            if isinstance(widget, ctk.CTkTextbox):
-                try:
-                    config[key] = json.loads(widget.get("1.0", "end-1c"))
-                except json.JSONDecodeError:
-                    messagebox.showerror("Error", f"Invalid JSON in '{key}' field.")
-                    return
-            elif isinstance(widget, ctk.CTkSwitch):
-                config[key] = bool(widget.get())
-            else: # CTkEntry
-                 config[key] = widget.get()
+        # Helper to set value in nested dict
+        def set_nested(d, keys, value):
+            for key in keys[:-1]:
+                d = d.setdefault(key, {})
+            d[keys[-1]] = value
 
-        # Encrypt sensitive fields before saving
-        config["encrypted_job_site_password"] = security.encrypt(config.pop("job_site_password", ""), self.master_password)
-        config["encrypted_email_app_password"] = security.encrypt(config.pop("email_app_password", ""), self.master_password)
+        # Start with a fresh copy of the profile
+        updated_config = json.loads(json.dumps(self.profiles[self.current_profile_name]))
+
+        for key_path, widget in self.config_vars.items():
+            keys = key_path.split('.')
+            if isinstance(widget, ctk.CTkSwitch):
+                value = bool(widget.get())
+            else: # CTkEntry
+                value_str = widget.get()
+                # Handle lists
+                if "," in value_str and "[" in str(self.profiles[self.current_profile_name].get(keys[0])) : # crude list check
+                    value = [item.strip() for item in value_str.split(',')]
+                else: # Handle numbers and strings
+                    try:
+                        value = int(value_str)
+                    except ValueError:
+                        try:
+                            value = float(value_str)
+                        except ValueError:
+                            value = value_str
+
+            set_nested(updated_config, keys, value)
+
+        # Encrypt sensitive fields before saving, if they have been changed
+        if "job_site_password (enter to change)" in updated_config:
+            new_password = updated_config["job_site_password (enter to change)"]
+            if new_password and new_password != "DECRYPTION FAILED":
+                updated_config["encrypted_job_site_password"] = security.encrypt(new_password, self.master_password)
+            del updated_config["job_site_password (enter to change)"]
+
+        if updated_config.get("email_automation", {}).get("app_password (enter to change)"):
+            new_password = updated_config["email_automation"]["app_password (enter to change)"]
+            if new_password and new_password != "DECRYPTION FAILED":
+                updated_config["email_automation"]["encrypted_email_app_password"] = security.encrypt(new_password, self.master_password)
+            del updated_config["email_automation"]["app_password (enter to change)"]
         
-        self.profiles[self.current_profile_name] = config
+        self.profiles[self.current_profile_name] = updated_config
         save_profiles(self.profiles)
         messagebox.showinfo("Success", f"Profile '{self.current_profile_name}' saved successfully.")
+        # Reload the widgets to reflect the saved state
+        self.on_profile_selected(self.current_profile_name)
+
 
     # --- Bot Threading Logic ---
     def start_bot(self):
-        if not self.current_profile_name:
+        if not self.current_profile_name or self.current_profile_name == "No Profiles Found":
             messagebox.showerror("Error", "No profile selected.")
             return
 
@@ -450,22 +529,26 @@ class App(ctk.CTk):
         self.start_button.configure(state="disabled")
         self.stop_button.configure(state="normal")
         
-        # Prepare a clean, decrypted config for the bot thread
-        bot_config = self.profiles[name].copy()
-        bot_config["job_site_password"] = security.decrypt(bot_config.get("encrypted_job_site_password", ""), self.master_password)
-        bot_config["email_app_password"] = security.decrypt(bot_config.get("encrypted_email_app_password", ""), self.master_password)
+        bot_config = self.profiles[name]
         
         self.stop_events[name] = threading.Event()
         self.status_queues[name] = queue.Queue()
-        self.bot_threads[name] = threading.Thread(target=run_bot, args=(name, bot_config, self.stop_events[name], self.status_queues[name]))
+        
+        # Pass the master password to the bot thread
+        self.bot_threads[name] = threading.Thread(
+            target=run_bot, 
+            args=(name, bot_config, self.master_password, self.stop_events[name], self.status_queues[name])
+        )
         self.bot_threads[name].daemon = True
         self.bot_threads[name].start()
         self.monitor_bot_thread(name)
+
 
     def stop_bot(self):
         name = self.current_profile_name
         if not name in self.bot_threads or not self.bot_threads[name].is_alive():
             log.warning(f"Bot for '{name}' is not running.")
+            self.stop_button.configure(state="disabled") # Ensure button is disabled if no thread
             return
             
         log.info(f"Stopping bot for profile: {name}...")
@@ -479,13 +562,14 @@ class App(ctk.CTk):
             self.after(1000, lambda: self.monitor_bot_thread(profile_name))
         else:
             log.info(f"Bot thread for '{profile_name}' has finished.")
-            # Only update GUI if the monitored profile is the currently selected one
             if profile_name == self.current_profile_name:
                 self.start_button.configure(state="normal")
                 self.stop_button.configure(state="disabled")
-                self.status_label.configure(text="Status: Idle", text_color="gray")
-                self.last_checked_label.configure(text="Last Checked: Never")
-                self.jobs_found_label.configure(text="Jobs Found (Session): 0")
+                # Check the status queue one last time for the final status
+                self.process_status_queue() 
+                if self.status_label.cget("text") not in ["Status: Stopped (Error)", "Status: Stopping..."]:
+                     self.status_label.configure(text="Status: Idle", text_color="gray")
+
 
     def process_log_queue(self):
         try:
@@ -505,34 +589,49 @@ class App(ctk.CTk):
             self.after(100, self.process_log_queue)
 
     def process_status_queue(self):
+        # Process status queue for the currently selected profile
         if self.current_profile_name and self.current_profile_name in self.status_queues:
             try:
                 update = self.status_queues[self.current_profile_name].get_nowait()
                 
                 if update['type'] == 'status':
-                    # Only update the main status if it's not 'sleeping' to avoid flicker
-                    if "sleeping" not in update['value'].lower():
-                         self.status_label.configure(text=f"Status: {update['value']}")
+                    color_map = {
+                        "searching": "lightblue", "sleeping": "gray", "running": "green",
+                        "starting": "orange", "stopping": "orange", "error": "red",
+                        "stopped": "red", "idle": "gray"
+                    }
+                    text_value = update['value'].lower()
+                    text_color = "white"
+                    for key, color in color_map.items():
+                        if key in text_value:
+                            text_color = color
+                            break
+                    self.status_label.configure(text=f"Status: {update['value']}", text_color=text_color)
                 elif update['type'] == 'last_checked':
                     self.last_checked_label.configure(text=f"Last Checked: {update['value']}")
                 elif update['type'] == 'jobs_found':
-                    current_count = int(self.jobs_found_label.cget("text").split(": ")[-1])
-                    new_total = current_count + update['value']
-                    self.jobs_found_label.configure(text=f"Jobs Found (Session): {new_total}")
+                    # This should be an absolute count for the session, not incremental
+                    self.jobs_found_label.configure(text=f"Jobs Found (Session): {update['value']}")
 
             except queue.Empty:
                 pass
         
         self.after(250, self.process_status_queue)
 
+
     def on_closing(self):
-        for name, event in self.stop_events.items():
-            if self.bot_threads[name].is_alive():
-                log.info(f"Signalling stop for profile '{name}'...")
-                event.set()
-        
-        # Give threads a moment to start closing
-        self.after(200, self.check_if_all_threads_dead)
+        if messagebox.askokcancel("Quit", "Do you want to quit? This will stop all running bots."):
+            any_thread_alive = False
+            for name, thread in self.bot_threads.items():
+                if thread.is_alive():
+                    any_thread_alive = True
+                    log.info(f"Signalling stop for profile '{name}'...")
+                    self.stop_events[name].set()
+            
+            if any_thread_alive:
+                self.after(200, self.check_if_all_threads_dead)
+            else:
+                self.destroy()
 
     def check_if_all_threads_dead(self):
         any_alive = any(t.is_alive() for t in self.bot_threads.values())
@@ -560,7 +659,6 @@ class FirstRunWizard(ctk.CTkToplevel):
             self.create_welcome_step, 
             self.create_master_password_step, 
             self.create_site_credentials_step,
-            self.create_email_credentials_step,
             self.create_finish_step
         ]
         
@@ -625,15 +723,9 @@ class FirstRunWizard(ctk.CTkToplevel):
         name_entry.pack(fill="x", padx=20)
         name_entry.insert(0, "My First Profile")
 
-        ctk.CTkLabel(self.content_frame, text="Job Site Login URL:", anchor="w").pack(fill="x", padx=20, pady=(10,0))
-        url_entry = ctk.CTkEntry(self.content_frame)
-        url_entry.pack(fill="x", padx=20)
-        url_entry.insert(0, self.temp_profile["job_site_url"])
-
-        ctk.CTkLabel(self.content_frame, text="Job Site Username:", anchor="w").pack(fill="x", padx=20, pady=(10,0))
+        ctk.CTkLabel(self.content_frame, text="Job Site Username (Email):", anchor="w").pack(fill="x", padx=20, pady=(10,0))
         user_entry = ctk.CTkEntry(self.content_frame)
         user_entry.pack(fill="x", padx=20)
-        user_entry.insert(0, self.temp_profile["job_site_username"])
         
         ctk.CTkLabel(self.content_frame, text="Job Site Password:", anchor="w").pack(fill="x", padx=20, pady=(10,0))
         pass_entry = ctk.CTkEntry(self.content_frame, show="*")
@@ -641,51 +733,27 @@ class FirstRunWizard(ctk.CTkToplevel):
 
         def save_step():
             self.profile_name = name_entry.get()
-            self.temp_profile["job_site_url"] = url_entry.get()
+            if not self.profile_name:
+                 messagebox.showerror("Error", "Profile name cannot be empty.", parent=self)
+                 return
+
+            # These will be encrypted later
             self.temp_profile["job_site_username"] = user_entry.get()
-            self.temp_profile["job_site_password"] = pass_entry.get()
-
-            if not all([self.profile_name, self.temp_profile["job_site_url"], self.temp_profile["job_site_username"]]):
-                messagebox.showerror("Error", "Please fill in all fields for the job site.", parent=self)
-                return
+            self.temp_profile["job_site_password_plain"] = pass_entry.get() 
             self.next_step()
 
-        ctk.CTkButton(self.content_frame, text="Next", command=save_step).pack(side="bottom", pady=20)
-
-
-    def create_email_credentials_step(self):
-        ctk.CTkLabel(self.content_frame, text="Step 3: Email for 2FA", font=ctk.CTkFont(size=20)).pack(pady=10)
-        
-        ctk.CTkLabel(self.content_frame, text="Email Address (for receiving 2FA codes):", anchor="w").pack(fill="x", padx=20)
-        email_entry = ctk.CTkEntry(self.content_frame)
-        email_entry.pack(fill="x", padx=20)
-        email_entry.insert(0, self.temp_profile["email_address"])
-
-        ctk.CTkLabel(self.content_frame, text="Email App Password (16-digit password):", anchor="w").pack(fill="x", padx=20, pady=(10,0))
-        email_pass_entry = ctk.CTkEntry(self.content_frame, show="*")
-        email_pass_entry.pack(fill="x", padx=20)
-
-        def save_step():
-            self.temp_profile["email_address"] = email_entry.get()
-            self.temp_profile["email_app_password"] = email_pass_entry.get()
-
-            if not all([self.temp_profile["email_address"], self.temp_profile["email_app_password"]]):
-                messagebox.showerror("Error", "Please fill in all email fields for 2FA.", parent=self)
-                return
-            self.next_step()
-            
         ctk.CTkButton(self.content_frame, text="Next", command=save_step).pack(side="bottom", pady=20)
 
     def create_finish_step(self):
         ctk.CTkLabel(self.content_frame, text="Setup Complete!", font=ctk.CTkFont(size=24, weight="bold")).pack(pady=20)
-        ctk.CTkLabel(self.content_frame, text=f"Profile '{self.profile_name}' has been created.\nClick Finish to launch Mission Control.", wraplength=450).pack(pady=10)
-
+        ctk.CTkLabel(self.content_frame, text=f"Profile '{getattr(self, 'profile_name', 'Default')}' will be created.\nClick Finish to launch Mission Control.", wraplength=450).pack(pady=10)
         ctk.CTkButton(self.content_frame, text="Finish", command=self.next_step).pack(pady=30)
         
     def finish_wizard(self):
-        # Encrypt the passwords before saving the profile
-        self.temp_profile["encrypted_job_site_password"] = security.encrypt(self.temp_profile.pop("job_site_password", ""), self.master_password)
-        self.temp_profile["encrypted_email_app_password"] = security.encrypt(self.temp_profile.pop("email_app_password", ""), self.master_password)
+        # Encrypt the password before finishing
+        password_plain = self.temp_profile.pop("job_site_password_plain", "")
+        if password_plain:
+            self.temp_profile["encrypted_job_site_password"] = security.encrypt(password_plain, self.master_password)
         
         self.profiles[self.profile_name] = self.temp_profile
         self.success = True

@@ -21,161 +21,122 @@ def filter_jobs(jobs: List[Dict[str, str]], keywords_config: Dict, filters_confi
     required_keywords = [k.lower() for k in keywords_config.get('required', [])]
     excluded_keywords = [k.lower() for k in keywords_config.get('excluded', [])]
     
-    # Get location filters
+    # Get location filters from the 'filters' dictionary
     allowed_cities = []
     if filters_config and filters_config.get('cities'):
         allowed_cities = [city.lower() for city in filters_config['cities']]
     
     for job in jobs:
-        title_lower = job['title'].lower()
+        title_lower = job.get('title', '').lower()
+        description_lower = job.get('description', '').lower()
+        job_text = title_lower + " " + description_lower
         location_lower = job.get('location', '').lower()
         
-        # Check required keywords (at least one must be present)
-        if required_keywords and not any(keyword in title_lower for keyword in required_keywords):
+        # Check required keywords (at least one must be present in title or description)
+        if required_keywords and not any(keyword in job_text for keyword in required_keywords):
             log.debug(f"Skipping job '{job['title']}' - no required keywords found")
             continue
             
-        # Check excluded keywords (none should be present)
-        if excluded_keywords and any(keyword in title_lower for keyword in excluded_keywords):
+        # Check excluded keywords (none should be present in title or description)
+        if excluded_keywords and any(keyword in job_text for keyword in excluded_keywords):
             log.debug(f"Skipping job '{job['title']}' - contains excluded keyword")
             continue
         
         # Check location filter
         if allowed_cities and not any(city in location_lower for city in allowed_cities):
-            log.debug(f"Skipping job '{job['title']}' in '{job.get('location')}' - location not in allowed list")
-            continue
+            # Allow job if location is empty/not specified, as it could be a remote role
+            if location_lower.strip():
+                log.debug(f"Skipping job '{job['title']}' in '{job.get('location')}' - location not in allowed list: {allowed_cities}")
+                continue
             
         filtered_jobs.append(job)
         
     return filtered_jobs
 
-def run_bot(profile_name: str, profile_config: Dict, stop_event: threading.Event, status_queue: queue.Queue):
+def run_bot(profile_name: str, profile_config: Dict, master_password: str, stop_event: threading.Event, status_queue: queue.Queue):
     """
     Main function to run the Sentinel Bot for a specific profile.
     This function is stateless and receives all config as arguments.
     """
     log.info(f"--- Sentinel Bot Thread Starting for Profile: {profile_name} ---")
     
-    # Unpack config with new structure
+    # Unpack config
     check_interval_minutes = profile_config.get("check_interval_minutes", 30)
-    sleep_interval_default = check_interval_minutes * 60  # Convert to seconds
-    sleep_interval_error = profile_config.get("max_retries", 3) * 60  # Error sleep based on retries
+    sleep_interval_seconds = check_interval_minutes * 60
     max_retries = profile_config.get("max_retries", 3)
+    error_sleep_seconds = 5 * 60 # Sleep for 5 minutes on error
 
     # Initialize components with profile-specific config
     state_manager = StateManager(profile_name)
     notifier = Notifier(profile_config.get("discord_webhook_url"))
-    browser_actor = BrowserActor(profile_config)
+    # Pass master_password to BrowserActor for decryption
+    browser_actor = BrowserActor(profile_config, master_password)
 
     retry_count = 0
     
-    try:
-        log.info("Attempting initial session setup...")
-        status_queue.put({"type": "status", "value": "Initializing..."})
-        if not browser_actor.initialize_session():
-            raise ConnectionError("Failed to initialize browser session during startup.")
-    except Exception as e:
-        log.exception(f"[{profile_name}] Critical error during startup. Bot will exit.")
-        status_queue.put({"type": "status", "value": "Startup failed"})
-        notifier.send_critical_alert(f"Bot for profile '{profile_name}' failed to start: {e}")
-        browser_actor.close()
-        state_manager.close()
-        return
-
     while not stop_event.is_set():
         try:
-            # Check session validity
-            if not browser_actor.is_session_valid():
-                log.warning(f"[{profile_name}] Session is no longer valid. Re-initializing...")
-                status_queue.put({"type": "status", "value": "Re-initializing..."})
-                if not browser_actor.initialize_session():
-                    retry_count += 1
-                    if retry_count >= max_retries:
-                        log.error(f"[{profile_name}] Failed to re-initialize session after {max_retries} attempts.")
-                        status_queue.put({"type": "status", "value": "Max retries exceeded"})
-                        break
-                    log.error(f"[{profile_name}] Failed to re-initialize session. Retry {retry_count}/{max_retries}")
-                    status_queue.put({"type": "status", "value": f"Retry {retry_count}/{max_retries}"})
-                    stop_event.wait(sleep_interval_error)
-                    continue
-                else:
-                    retry_count = 0  # Reset retry count on successful initialization
-
-            # Scrape job listings
-            log.info(f"[{profile_name}] Starting job search session via BrowserActor...") # Updated log
-            status_queue.put({"type": "status", "value": "Running job search session..."})
-            scraped_jobs = browser_actor.run_job_search_session()
-            # browser_actor.run_job_search_session() will now handle everything internally based on its config
-            status_queue.put({"type": "last_checked", "value": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+            log.info(f"[{profile_name}] Starting new job search session...")
+            status_queue.put({"type": "status", "value": "Searching..."})
             
-            if not scraped_jobs:
-                log.info(f"[{profile_name}] No job listings found on current page.")
-                status_queue.put({"type": "status", "value": "No jobs found"})
+            # The browser_actor now handles the entire session internally
+            scraped_jobs = browser_actor.run_job_search_session()
+            
+            status_queue.put({"type": "last_checked", "value": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+            log.info(f"[{profile_name}] Session finished. Scraped {len(scraped_jobs)} total jobs.")
+
+            # Get already seen jobs from the database
+            seen_links = state_manager.get_seen_urls()
+            
+            # Filter out jobs that have already been seen
+            new_jobs = [job for job in scraped_jobs if job.get('link') and job['link'] not in seen_links]
+            
+            if not new_jobs:
+                log.info(f"[{profile_name}] No new job listings found.")
             else:
-                log.info(f"[{profile_name}] Scraped {len(scraped_jobs)} job listings.")
+                log.info(f"[{profile_name}] Found {len(new_jobs)} new listings (before filtering).")
                 
-                # Check for new jobs
-                seen_urls = state_manager.get_seen_urls()
-                new_jobs = [job for job in scraped_jobs if job['url'] not in seen_urls]
-
-                if not new_jobs:
-                    log.info(f"[{profile_name}] No new jobs found (all already seen).")
-                    status_queue.put({"type": "status", "value": "No new jobs"})
+                # Apply keyword and location filters to the new jobs
+                filtered_new_jobs = filter_jobs(
+                    new_jobs,
+                    profile_config.get("keywords", {}),
+                    profile_config.get("filters", {})
+                )
+                
+                if filtered_new_jobs:
+                    log.info(f"[{profile_name}] Found {len(filtered_new_jobs)} new jobs matching filters. Notifying...")
+                    status_queue.put({"type": "jobs_found", "value": len(filtered_new_jobs)})
+                    
+                    for job in filtered_new_jobs:
+                        notifier.send_new_job_alert(job)
                 else:
-                    log.info(f"[{profile_name}] Found {len(new_jobs)} new listings (before filtering).")
-                    
-                    # Apply filters
-                    filtered_new_jobs = filter_jobs(
-                        new_jobs, 
-                        profile_config.get("keywords", {}),
-                        profile_config.get("filters", {})
-                    )
-                    
-                    if filtered_new_jobs:
-                        log.info(f"[{profile_name}] Found {len(filtered_new_jobs)} jobs matching filters. Notifying...")
-                        status_queue.put({"type": "jobs_found", "value": len(filtered_new_jobs)})
-                        
-                        # Send notifications
-                        for job in filtered_new_jobs:
-                            try:
-                                notifier.send_new_job_alert(job)
-                            except Exception as e:
-                                log.error(f"[{profile_name}] Failed to send notification for job '{job['title']}': {e}")
-                    else:
-                        log.info(f"[{profile_name}] No new jobs matched the configured filters.")
-                        status_queue.put({"type": "status", "value": "No matches found"})
-                    
-                    # Save all new jobs (even if filtered out) to avoid re-processing
-                    state_manager.save_jobs(new_jobs)
+                    log.info(f"[{profile_name}] No new jobs matched the configured filters.")
 
-            # Sleep until next check
+                # Save all new (unfiltered) job links to the database to prevent re-notifying
+                state_manager.save_jobs(new_jobs)
+
+            # Reset retry count after a successful run
+            retry_count = 0
+            
             log.info(f"[{profile_name}] Sleeping for {check_interval_minutes} minutes...")
-            status_queue.put({"type": "status", "value": f"Sleeping for {check_interval_minutes}m..."})
-            if stop_event.wait(sleep_interval_default):
-                break  # Stop event was set during sleep
+            status_queue.put({"type": "status", "value": f"Sleeping..."})
+            stop_event.wait(sleep_interval_seconds)
 
         except Exception as e:
-            if stop_event.is_set():
-                log.info(f"[{profile_name}] Shutting down, ignoring error during exit.")
-                break
-                
+            log.exception(f"[{profile_name}] An unexpected error occurred in the main loop (attempt {retry_count + 1}/{max_retries}).")
             retry_count += 1
-            log.exception(f"[{profile_name}] An unexpected error occurred in the main loop (attempt {retry_count}/{max_retries}).")
-            status_queue.put({"type": "status", "value": f"Error (retry {retry_count}/{max_retries})"})
             
             if retry_count >= max_retries:
-                log.error(f"[{profile_name}] Max retries exceeded. Bot will exit.")
-                status_queue.put({"type": "status", "value": "Max retries exceeded"})
-                notifier.send_critical_alert(f"Bot for profile '{profile_name}' stopped after {max_retries} errors. Last error: {e}")
+                log.error(f"[{profile_name}] Max retries exceeded. Bot for this profile will stop.")
+                notifier.send_critical_alert(f"Bot for profile '{profile_name}' stopped after {max_retries} consecutive errors.")
+                status_queue.put({"type": "status", "value": "Stopped (Error)"})
                 break
-            else:
-                notifier.send_critical_alert(f"Error in profile '{profile_name}' (retry {retry_count}/{max_retries}): {e}")
-                log.info(f"[{profile_name}] Waiting for {sleep_interval_error}s before retrying.")
-                if stop_event.wait(sleep_interval_error):
-                    break
+            
+            notifier.send_critical_alert(f"Error in profile '{profile_name}' (retry {retry_count}/{max_retries}): {e}")
+            log.info(f"[{profile_name}] Waiting for {error_sleep_seconds / 60:.0f} minutes before retrying.")
+            status_queue.put({"type": "status", "value": f"Error, retrying..."})
+            stop_event.wait(error_sleep_seconds)
 
     log.info(f"[{profile_name}] Thread received stop signal. Cleaning up...")
-    status_queue.put({"type": "status", "value": "Stopping..."})
-    browser_actor.close()
     state_manager.close()
-    log.info(f"--- Sentinel Bot Thread Stopped for Profile: {profile_name} ---") 
+    log.info(f"--- Sentinel Bot Thread Stopped for Profile: {profile_name} ---")
