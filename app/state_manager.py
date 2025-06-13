@@ -7,9 +7,7 @@ import re
 
 def sanitize_filename(name: str) -> str:
     """Sanitizes a string to be a valid filename."""
-    # Remove characters that are invalid on many filesystems (e.g. backslash or pipe)
-    name = re.sub(r'[\\|]', '', name)
-    # Replace any remaining invalid characters with an underscore
+    # Replace characters not allowed in filenames with an underscore
     return re.sub(r'[^a-zA-Z0-9_-]', '_', name)
 
 class StateManager:
