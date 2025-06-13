@@ -5,10 +5,13 @@ import os
 # Adjust path to import from app module
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
-from app.main import filter_jobs
-# Mock the logger for tests to avoid errors if logger is not configured during tests
 from unittest.mock import MagicMock
-import app.main # Import the module itself to mock 'log'
+
+sys.modules['app.browser_actor'] = MagicMock()
+sys.modules['app.notifier'] = MagicMock()
+
+from app.main import filter_jobs
+import app.main  # Import the module itself to mock 'log'
 app.main.log = MagicMock()
 
 
