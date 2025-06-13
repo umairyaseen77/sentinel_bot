@@ -101,27 +101,11 @@ def run_bot(profile_name: str, profile_config: Dict, stop_event: threading.Event
                 else:
                     retry_count = 0  # Reset retry count on successful initialization
 
-            # Perform job search if configured
-            keywords = profile_config.get("keywords", {}).get("required", [])
-            cities = profile_config.get("filters", {}).get("cities", [])
-            
-            # Try searching with different cities
-            search_performed = False
-            if cities and keywords:
-                for city in cities:
-                    status_queue.put({"type": "status", "value": f"Searching jobs in {city}..."})
-                    if browser_actor.search_jobs(keywords, city):
-                        search_performed = True
-                        break  # Use first successful search
-                        
-            if not search_performed and keywords:
-                # Try generic search without location
-                status_queue.put({"type": "status", "value": "Searching jobs (no location)..."})
-                browser_actor.search_jobs(keywords)
-
             # Scrape job listings
-            status_queue.put({"type": "status", "value": "Scraping job listings..."})
-            scraped_jobs = browser_actor.scrape_job_listings()
+            log.info(f"[{profile_name}] Starting job search session via BrowserActor...") # Updated log
+            status_queue.put({"type": "status", "value": "Running job search session..."})
+            scraped_jobs = browser_actor.run_job_search_session()
+            # browser_actor.run_job_search_session() will now handle everything internally based on its config
             status_queue.put({"type": "last_checked", "value": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
             
             if not scraped_jobs:
